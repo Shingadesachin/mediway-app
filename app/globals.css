@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { -webkit-tap-highlight-color: transparent; scroll-behavior: smooth; }
+body { @apply bg-mist text-ink font-sans antialiased; }
+h1, h2, h3, .font-display { font-family: "Bricolage Grotesque", Figtree, ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; }
+.tnum { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 3px solid #4F8DD8; outline-offset: 2px; }
+input[type="range"] { accent-color: #0F52A8; }
+input[type="checkbox"] { accent-color: #0F52A8; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* queue ticket perforation */
+.ticket { position: relative; }
+.ticket::before, .ticket::after {
+  content: ""; position: absolute; width: 22px; height: 22px; border-radius: 9999px; background: #F3F8FC; left: 62%; z-index: 2;
+}
+.ticket::before { top: -11px; }
+.ticket::after { bottom: -11px; }
+@media (max-width: 639px) {
+  .ticket::before, .ticket::after { left: -11px; top: auto; bottom: auto; }
+  .ticket::before { top: 38%; } .ticket::after { top: 38%; left: auto; right: -11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media print { .no-print { display: none !important; } }
