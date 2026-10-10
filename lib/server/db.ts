@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 const SCHEMA = `
@@ -45,7 +46,8 @@ type DB = Database.Database;
 export function getDb(): DB {
   const g = globalThis as unknown as { __mwdb?: DB };
   if (g.__mwdb) return g.__mwdb;
-  const dir = process.env.DATA_DIR || path.join(process.cwd(), "data");
+  // Vercel only allows writing to the temporary folder. Locally (and on Railway/Fly/VPS) we use ./data or DATA_DIR.
+  const dir = process.env.DATA_DIR || (process.env.VERCEL ? path.join(os.tmpdir(), "mediway") : path.join(process.cwd(), "data"));
   fs.mkdirSync(dir, { recursive: true });
   const db = new Database(path.join(dir, "mediway.db"));
   db.pragma("journal_mode = WAL");

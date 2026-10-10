@@ -58,6 +58,19 @@ Reminders are sent by the server on its own: no cron is needed while the app is 
 - `app/(app)/`, `app/(auth)/`, `app/(open)/` patient pages. `app/staff/` clinic desk
 - `lib/data.ts` clinic and doctor catalogue (edit to add your clinic). Hospitals are fictional sample data.
 
+## Deploy to Vercel (demo)
+1. Push this folder to a new GitHub repository (do not commit `.env.local` or `data/`; `.gitignore` already excludes them).
+2. On vercel.com choose Add New, then Project, and import the repository. Framework: Next.js (detected automatically).
+3. Before pressing Deploy, open Environment Variables and add `SESSION_SECRET` with a long random value (40+ characters).
+4. Deploy. When it finishes, open `https://YOUR-APP.vercel.app/api/health`. You should see `"ok":true`. If not, the page shows the exact error.
+5. Log in with the demo accounts above.
+
+Important: Vercel has no permanent disk. The app keeps its SQLite file in the temporary folder, so demo accounts and sample
+data come back on every start, but new signups, bookings and clinic actions can disappear after a few minutes or when Vercel
+switches to another server. This is fine for showing screens, not for a live walkthrough that books and then switches roles.
+For data that stays, deploy on Railway, Fly.io or a VPS with a persistent volume (set `DATA_DIR` to the volume path), or move
+`lib/server` to a hosted Postgres database.
+
 ## Before going live
 - Set `SESSION_SECRET` to a long random value and serve over HTTPS.
 - Staff accounts are seeded. Add a way to create and rotate them (script or admin page) and change the demo passwords.
