@@ -67,7 +67,7 @@ export default function StaffLogin() {
             </ul>
           </div>
           <p className="mt-6 text-center text-sm text-slate-600">Looking for care? <Link href="/login" className="font-semibold text-brand-600 hover:underline">Open the patient app</Link></p>
-          <p className="mt-2 text-center text-sm text-slate-600">New clinic? <Link href="/staff/signup" className="font-semibold text-brand-600 hover:underline">Apply to join</Link></p>
+          <p className="mt-2 text-center text-sm text-slate-600">New clinic? <Link href="/staff/signup" className="font-semibold text-brand-600 hover:underline">Create a clinic account</Link></p>
         </div>
       </div>
     </div>

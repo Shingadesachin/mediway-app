@@ -91,8 +91,9 @@ handles push clicks and opens the corresponding app page.
 
 SQLite upgrades are applied with ordered `PRAGMA user_version` migrations. In addition to the original patient,
 appointment, and clinic-operation tables, the app uses `password_resets`, `clinics`, `doctors`,
-`clinic_applications`, `push_subscriptions`, and `staff_notifications`. Clinic and doctor catalogue changes are
-seeded into SQLite; existing databases are upgraded without dropping existing records.
+`clinic_applications` (retained for older pending records), `push_subscriptions`, and `staff_notifications`.
+Clinic and doctor catalogue changes are seeded into SQLite; existing databases are upgraded without dropping
+existing records.
 
 ## Structure
 - `middleware.ts` route protection by role
@@ -110,8 +111,8 @@ seeded into SQLite; existing databases are upgraded without dropping existing re
 - `POST /api/auth/change-password` — authenticated change requiring `currentPassword`
 - `GET /api/state` and `GET /api/staff/state` refresh a valid session cookie after one hour of activity.
 - `GET /api/location/resolve?pincode=<6-digit PIN>` — resolves an Indian PIN code for distance-based clinic search.
-- `POST /api/clinic/applications` — submit a clinic application
-- `GET, POST /api/admin/applications` — admin review and approval/rejection
+- `POST /api/clinic/signup` — create a clinic and clinic staff account, then sign in
+- `GET, POST /api/admin/applications` — review older pending clinic applications
 - `POST /api/staff/doctors` — clinic-scoped doctor add/edit and portal setup
 - `GET /api/doctor/state`, `POST /api/doctor/action` — doctor queue and authorized queue actions
 - `POST /api/push/subscribe`, `POST /api/push/unsubscribe`, `GET /api/push/key` — push subscription management
@@ -135,7 +136,7 @@ For data that stays, deploy on Railway, Fly.io or a VPS with a persistent volume
 
 ## Before going live
 - Set `SESSION_SECRET` to a long random value and serve over HTTPS.
-- Change all demo credentials. Clinic applications must be reviewed by the seeded MediWay admin.
+- Change all demo credentials. New clinic signups create a clinic desk account immediately.
 - SQLite suits a single server. For several servers move to PostgreSQL (queries are in `lib/server/service.ts`).
 - The login rate limiter is in memory; use a shared store behind a load balancer.
 - Keep consent and privacy rules for patient phone numbers (India DPDP Act). Replace sample hospital numbers with verified ones.
