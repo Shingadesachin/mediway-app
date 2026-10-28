@@ -29,7 +29,9 @@ const MUMBAI_PLACES: Record<string, Coordinates> = {
 };
 
 export function resolveManualLocation(query: string): Coordinates | null {
-  const q = query.trim().toLowerCase().replace(/^pin\s*code\s*/i, "");
+  const q = query.trim().toLowerCase()
+    .replace(/^pin\s*code\s*/i, "")
+    .replace(/\s+/g, " ");
   const exact = MUMBAI_PLACES[q];
   if (exact) return exact;
   const found = Object.entries(MUMBAI_PLACES).find(([name]) => !/^\d+$/.test(name) && q.includes(name));

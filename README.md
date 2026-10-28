@@ -72,7 +72,9 @@ An SQLite migration normalizes existing user and appointment phone numbers.
 ## Location, maps and notifications
 
 Location is requested only after the user chooses the location control; users can instead enter a Mumbai area or
-PIN code. Browser coordinates are kept client-side. Clinic and hospital sample coordinates are illustrative.
+any valid 6-digit Indian PIN code. PIN codes are resolved to a nearby point using OpenStreetMap's Nominatim service,
+then clinics are sorted by real distance and filtered by the chosen radius. Browser coordinates are kept client-side.
+Clinic and hospital sample coordinates are illustrative.
 Maps use Leaflet and OpenStreetMap tiles without an API key; directions open Google Maps.
 
 To enable push notifications, generate VAPID keys with:
@@ -107,6 +109,7 @@ seeded into SQLite; existing databases are upgraded without dropping existing re
 - `POST /api/auth/reset` — single-use password reset with `token` and `password`
 - `POST /api/auth/change-password` — authenticated change requiring `currentPassword`
 - `GET /api/state` and `GET /api/staff/state` refresh a valid session cookie after one hour of activity.
+- `GET /api/location/resolve?pincode=<6-digit PIN>` — resolves an Indian PIN code for distance-based clinic search.
 - `POST /api/clinic/applications` — submit a clinic application
 - `GET, POST /api/admin/applications` — admin review and approval/rejection
 - `POST /api/staff/doctors` — clinic-scoped doctor add/edit and portal setup

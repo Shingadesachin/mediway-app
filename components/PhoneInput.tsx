@@ -1,7 +1,7 @@
 "use client";
 
 import { parsePhoneNumberFromString } from "libphonenumber-js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inputCls } from "./ui";
 
 const COUNTRIES = [
@@ -12,6 +12,20 @@ const COUNTRIES = [
   { code: "AU", label: "Australia", dial: "+61" },
   { code: "AE", label: "United Arab Emirates", dial: "+971" },
 ] as const;
+
+type CountryCode = (typeof COUNTRIES)[number]["code"];
+
+function fromStoredValue(value: string, fallbackCountry: CountryCode) {
+  if (!value) return { country: fallbackCountry, national: "" };
+  const international = value.startsWith("+");
+  const parsed = international
+    ? parsePhoneNumberFromString(value)
+    : parsePhoneNumberFromString(value, fallbackCountry);
+  const country = international
+    ? COUNTRIES.find((item) => item.code === parsed?.country)?.code || fallbackCountry
+    : fallbackCountry;
+  return { country, national: parsed?.nationalNumber || value };
+}
 
 export function PhoneInput({
   value,
@@ -26,44 +40,37 @@ export function PhoneInput({
   autoComplete?: string;
   placeholder?: string;
 }) {
-  const [country, setCountry] = useState<(typeof COUNTRIES)[number]["code"]>("IN");
-  const [national, setNational] = useState("");
+  const [initial] = useState(() => fromStoredValue(value, "IN"));
+  const [country, setCountry] = useState<CountryCode>(initial.country);
+  const [national, setNational] = useState(initial.national);
+  const lastEmittedValue = useRef(value);
 
   useEffect(() => {
-    if (!value) {
-      setNational("");
-      return;
-    }
-    const international = value.startsWith("+");
-    const parsed = international
-      ? parsePhoneNumberFromString(value)
-      : parsePhoneNumberFromString(value, country);
-    if (parsed) {
-      if (international) {
-        const match = COUNTRIES.find((item) => item.code === parsed.country);
-        if (match) setCountry(match.code);
-      }
-      setNational(parsed.nationalNumber);
-    } else {
-      setNational(value);
-    }
+    if (value === lastEmittedValue.current) return;
+    const next = fromStoredValue(value, country);
+    setCountry(next.country);
+    setNational(next.national);
+    lastEmittedValue.current = value;
   }, [value, country]);
 
   const selected = COUNTRIES.find((item) => item.code === country)!;
+  const controlClassName = className.split(/\s+/).filter((name) => name !== "w-full").join(" ");
   const update = (raw: string, region = country) => {
     setNational(raw);
     const parsed = parsePhoneNumberFromString(raw, region);
-    onChange(parsed?.isValid() ? parsed.number : raw);
+    const nextValue = parsed?.isValid() ? parsed.number : raw;
+    lastEmittedValue.current = nextValue;
+    onChange(nextValue);
   };
 
   return (
-    <div className="flex gap-2">
+    <div className="flex min-w-0 gap-2">
       <select
         aria-label="Phone country code"
-        className={`${className} w-[7.5rem] shrink-0 px-2`}
+        className={`${controlClassName} w-28 shrink-0 px-2`}
         value={country}
         onChange={(e) => {
-          const next = e.target.value as (typeof COUNTRIES)[number]["code"];
+          const next = e.target.value as CountryCode;
           setCountry(next);
           update(national, next);
         }}
@@ -73,13 +80,15 @@ export function PhoneInput({
         ))}
       </select>
       <input
-        className={className}
+        className={`${controlClassName} w-0 min-w-0 flex-1`}
         value={national}
         onChange={(e) => update(e.target.value)}
+        type="tel"
         inputMode="tel"
         autoComplete={autoComplete}
         placeholder={placeholder}
         aria-label={`Phone number (${selected.label})`}
+        maxLength={25}
       />
     </div>
   );
