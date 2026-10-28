@@ -6,6 +6,9 @@ import { MapPanel } from "@/components/MapPanel";
 import { Badge, ButtonLink, Card, Chip } from "@/components/ui";
 import { EMERGENCY_CONTACTS, HOSPITALS } from "@/lib/data";
 import { cn, mapsDirections } from "@/lib/utils";
+import { useUserLocation } from "@/lib/location";
+import { distanceKm } from "@/lib/geo";
+import { LocationPicker } from "@/components/LocationPicker";
 
 type Tab = "nearest" | "er" | "contact" | "directions";
 const tabs: { id: Tab; label: string; icon: typeof Building2 }[] = [
@@ -18,7 +21,8 @@ const tabs: { id: Tab; label: string; icon: typeof Building2 }[] = [
 export default function Emergency() {
   const [tab, setTab] = useState<Tab>("nearest");
   const [sel, setSel] = useState<string | null>("h1");
-  const list = [...HOSPITALS].sort((a, b) => a.distanceKm - b.distanceKm);
+  const { location, setLocation } = useUserLocation();
+  const list = [...HOSPITALS].sort((a, b) => location ? distanceKm(location, a) - distanceKm(location, b) : a.name.localeCompare(b.name));
   const shown = tab === "er" ? list.filter((h) => h.er) : list;
   const shareText = encodeURIComponent("I need urgent help. Please call an ambulance (108) to my location. I'm sharing my live location next.");
 
@@ -38,6 +42,7 @@ export default function Emergency() {
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0" role="tablist">
         {tabs.map((t) => <Chip key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</Chip>)}
       </div>
+      <LocationPicker location={location} onChange={setLocation} />
 
       {tab === "contact" ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -61,7 +66,7 @@ export default function Emergency() {
                 <button className="w-full text-left" onClick={() => setSel(h.id)}>
                   <div className="flex items-start justify-between gap-3">
                     <div><h2 className="text-lg font-bold">{h.name}</h2><p className="flex items-center gap-1 text-sm text-slate-600"><MapPin className="h-4 w-4" aria-hidden /> {h.address}</p></div>
-                    <span className="tnum shrink-0 font-display text-xl font-extrabold text-rescue-600">{h.distanceKm} km</span>
+                    <span className="tnum shrink-0 font-display text-xl font-extrabold text-rescue-600">{location ? `${distanceKm(location, h).toFixed(1)} km` : "Nearby"}</span>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2"><Badge tone="red">Emergency dept. 24x7</Badge><Badge tone="blue">{h.trauma}</Badge><Badge tone={h.beds === "Beds available" ? "green" : "amber"}>{h.beds}</Badge></div>
                   <p className="mt-2 text-sm text-slate-600">{h.note}</p>
@@ -74,7 +79,7 @@ export default function Emergency() {
             ))}
             <p className="text-xs text-slate-500">Hospital names and numbers are fictional sample data. Replace with a verified source before real use.</p>
           </div>
-          <div className="lg:col-span-2"><MapPanel className="h-72 lg:sticky lg:top-24 lg:h-[28rem]" items={shown.map((h) => ({ id: h.id, label: h.name, x: h.x, y: h.y, kind: "hospital" as const }))} selected={sel} onSelect={setSel} /></div>
+          <div className="lg:col-span-2"><MapPanel className="h-72 lg:sticky lg:top-24 lg:h-[28rem]" items={shown.map((h) => ({ id: h.id, label: h.name, lat: h.lat, lng: h.lng, kind: "hospital" as const }))} selected={sel} onSelect={setSel} userLocation={location} /></div>
         </div>
       )}
 

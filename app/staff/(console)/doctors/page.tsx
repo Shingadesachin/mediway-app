@@ -3,17 +3,38 @@ import { useState } from "react";
 import { CalendarOff, Siren, Trash2 } from "lucide-react";
 import { AwayModal, doctorStatus, queueOf } from "@/components/staff/parts";
 import { Avatar, Badge, Button, Card, Field, inputCls } from "@/components/ui";
-import { Doctor, doctorsOf } from "@/lib/data";
+import { Doctor, doctorsOf, SPECIALTIES } from "@/lib/data";
 import { useStaff } from "@/lib/staff-store";
 import { fmtMin, fmtTime, fromMin, shortDate, toISO, addDays } from "@/lib/utils";
 
 export default function Doctors() {
-  const { state, now, act, toast } = useStaff();
+  const { state, now, act, toast, refresh } = useStaff();
   const docs = doctorsOf(state.user.clinicId!);
   const today = toISO(now);
   const [away, setAway] = useState<Doctor | null>(null);
   const [b, setB] = useState({ doctorId: docs[0]?.id || "", date: today, from: "13:00", to: "14:00", reason: "Lunch break" });
   const [err, setErr] = useState("");
+  const [doctorError, setDoctorError] = useState("");
+  const [doctorBusy, setDoctorBusy] = useState(false);
+  const [editorId, setEditorId] = useState("");
+  const [doctorForm, setDoctorForm] = useState({ name: "", specialty: SPECIALTIES[0], fee: "500", shiftStart: "09:00", shiftEnd: "18:00", languages: "English, Hindi", contactEmail: "" });
+  const saveDoctor = async (event: React.FormEvent) => {
+    event.preventDefault(); setDoctorError(""); setDoctorBusy(true);
+    try {
+      const response = await fetch("/api/staff/doctors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...doctorForm, id: editorId || undefined }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save doctor details.");
+      await refresh();
+      toast("success", result.loginEmail ? `Doctor saved. Portal login: ${result.loginEmail}${result.emailStatus === "simulated" ? " (setup link logged by server)" : ""}` : "Doctor details saved.");
+      setEditorId(""); setDoctorForm({ name: "", specialty: SPECIALTIES[0], fee: "500", shiftStart: "09:00", shiftEnd: "18:00", languages: "English, Hindi", contactEmail: "" });
+    } catch (e) { setDoctorError((e as Error).message); }
+    finally { setDoctorBusy(false); }
+  };
+  const editDoctor = (doctor: Doctor) => {
+    setEditorId(doctor.id);
+    setDoctorForm({ name: doctor.name, specialty: doctor.specialty, fee: String(doctor.fee), shiftStart: fromMin(doctor.shift[0]), shiftEnd: fromMin(doctor.shift[1]), languages: doctor.languages.join(", "), contactEmail: "" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const run = async (type: string, p: Record<string, unknown>, ok: string) => { try { await act(type, p); toast("success", ok); } catch {} };
   const addBlock = async () => {
     setErr("");
@@ -24,6 +45,21 @@ export default function Doctors() {
   return (
     <div className="space-y-8">
       <div><h1 className="text-2xl font-bold sm:text-3xl">Doctors</h1><p className="text-slate-600">Availability, emergencies and blocked time for your clinic.</p></div>
+      <Card className="p-5">
+        <h2 className="mb-1 text-lg font-bold">{editorId ? "Edit doctor" : "Add a doctor"}</h2>
+        <p className="mb-4 text-sm text-slate-600">Doctor portal access is created with an issued MediWay login and one-time password setup link.</p>
+        <form onSubmit={saveDoctor} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Name"><input className={inputCls} value={doctorForm.name} onChange={(e) => setDoctorForm({ ...doctorForm, name: e.target.value })} required /></Field>
+          <Field label="Specialty"><select className={inputCls} value={doctorForm.specialty} onChange={(e) => setDoctorForm({ ...doctorForm, specialty: e.target.value })}>{SPECIALTIES.map((specialty) => <option key={specialty}>{specialty}</option>)}</select></Field>
+          <Field label="Consultation fee (₹)"><input className={inputCls} type="number" min="0" max="100000" value={doctorForm.fee} onChange={(e) => setDoctorForm({ ...doctorForm, fee: e.target.value })} required /></Field>
+          <Field label="Languages (comma-separated)"><input className={inputCls} value={doctorForm.languages} onChange={(e) => setDoctorForm({ ...doctorForm, languages: e.target.value })} required /></Field>
+          <Field label="Shift starts"><input className={inputCls} type="time" value={doctorForm.shiftStart} onChange={(e) => setDoctorForm({ ...doctorForm, shiftStart: e.target.value })} required /></Field>
+          <Field label="Shift ends"><input className={inputCls} type="time" value={doctorForm.shiftEnd} onChange={(e) => setDoctorForm({ ...doctorForm, shiftEnd: e.target.value })} required /></Field>
+          <Field label="Doctor email for portal setup"><input className={inputCls} type="email" value={doctorForm.contactEmail} onChange={(e) => setDoctorForm({ ...doctorForm, contactEmail: e.target.value })} /></Field>
+          {doctorError && <p className="text-sm text-rescue-600 sm:col-span-2 lg:col-span-4" role="alert">{doctorError}</p>}
+          <div className="flex gap-2 sm:col-span-2 lg:col-span-4"><Button disabled={doctorBusy}>{doctorBusy ? "Saving..." : editorId ? "Save doctor" : "Add doctor and create login"}</Button>{editorId && <Button type="button" variant="secondary" onClick={() => { setEditorId(""); setDoctorForm({ name: "", specialty: SPECIALTIES[0], fee: "500", shiftStart: "09:00", shiftEnd: "18:00", languages: "English, Hindi", contactEmail: "" }); }}>Cancel edit</Button>}</div>
+        </form>
+      </Card>
       <div className="grid gap-5 md:grid-cols-2">
         {docs.map((d) => {
           const st = doctorStatus(state, d, now), info = state.doctors.find((x) => x.id === d.id), q = queueOf(state, d.id, today);
@@ -39,6 +75,7 @@ export default function Doctors() {
               </dl>
               {st.key === "away" && info?.awaySince && <p className="mt-3 text-sm text-rescue-700">Away since {new Date(info.awaySince).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}: {info.awayReason}</p>}
               <div className="mt-4">
+                <Button variant="secondary" className="mb-2 w-full" onClick={() => editDoctor(d)}>Edit doctor details</Button>
                 {st.key === "away"
                   ? <Button variant="success" className="w-full" onClick={() => run("back", { doctorId: d.id }, `${d.name} is back on duty`)}>Mark back on duty</Button>
                   : <Button variant="danger" className="w-full" onClick={() => setAway(d)}><Siren className="h-4 w-4" /> Called away for an emergency</Button>}

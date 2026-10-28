@@ -3,7 +3,8 @@ import { assertSameOrigin, hashPassword, rateLimit, startSession } from "@/lib/s
 import { getDb } from "@/lib/server/db";
 import { HttpError, fail } from "@/lib/server/errors";
 import { newId } from "@/lib/server/service";
-import { validPhone } from "@/lib/utils";
+import { cleanText } from "@/lib/server/validation";
+import { normPhone, validPhone } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +13,13 @@ export async function POST(req: Request) {
     assertSameOrigin(req);
     rateLimit(`signup:${req.headers.get("x-forwarded-for") || "local"}`, 10);
     const b = await req.json();
-    const name = String(b.name || "").trim().slice(0, 80), email = String(b.email || "").trim().toLowerCase().slice(0, 120), phone = String(b.phone || "").trim().slice(0, 20), pw = String(b.password || "");
+    const name = cleanText(b.name, 80), email = cleanText(b.email, 120).toLowerCase(), rawPhone = cleanText(b.phone, 40), pw = String(b.password || "");
     if (name.length < 2) throw new HttpError(400, "Enter your full name.");
-    if (!validPhone(phone)) throw new HttpError(400, "Enter a 10-digit mobile number.");
+    if (!validPhone(rawPhone)) throw new HttpError(400, "Enter a valid phone number for the selected country.");
+    const phone = normPhone(rawPhone);
     if (!/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, "Enter a valid email address.");
     if (pw.length < 8) throw new HttpError(400, "Use at least 8 characters for your password.");
-    const db = getDb(), norm = phone.replace(/\D/g, "").slice(-10);
+    const db = getDb(), norm = phone;
     if (db.prepare("SELECT 1 FROM users WHERE lower(email)=? OR (phone_norm=? AND is_guest=0)").get(email, norm)) throw new HttpError(409, "An account with this phone or email already exists. Log in instead.");
     const id = "u-" + newId();
     db.prepare("INSERT INTO users(id,role,name,email,phone,phone_norm,password_hash,created_at) VALUES (?,?,?,?,?,?,?,?)").run(id, "patient", name, email, phone, norm, hashPassword(pw), Date.now());

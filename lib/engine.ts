@@ -1,5 +1,7 @@
 import { CLINICS, DOCTORS, Clinic, Doctor, getClinic } from "./data";
 import { addDays, fmtTime, fromMin, nowMin, toISO, toMin } from "./utils";
+import { distanceKm } from "./geo";
+import type { Coordinates } from "./geo";
 
 export interface Ctx {
   now: Date;
@@ -91,6 +93,7 @@ export interface RecPrefs {
   maxKm: number;
   maxFee: number;
   urgent: boolean;
+  origin?: Pick<Coordinates, "lat" | "lng">;
 }
 export interface Rec {
   doctor: Doctor;
@@ -98,6 +101,7 @@ export interface Rec {
   score: number;
   reasons: string[];
   avail: Avail;
+  distanceKm?: number;
 }
 
 /**
@@ -110,7 +114,8 @@ export function recommend(p: RecPrefs, ctx: Ctx, waits: Record<string, number>):
   const out: Rec[] = [];
   for (const doc of DOCTORS) {
     const clinic = getClinic(doc.clinicId);
-    if (clinic.distanceKm > p.maxKm || doc.fee > p.maxFee) continue;
+    const distance = p.origin ? distanceKm(p.origin, clinic) : undefined;
+    if ((distance !== undefined && distance > p.maxKm) || doc.fee > p.maxFee) continue;
     if (p.urgent && !clinic.urgent) continue;
     const reasons: string[] = [];
     let spec = 0;
@@ -118,8 +123,8 @@ export function recommend(p: RecPrefs, ctx: Ctx, waits: Record<string, number>):
     else if (doc.specialty === p.specialty) { spec = W.spec; reasons.push(`Matches your selected specialty (${p.specialty})`); }
     else if (doc.specialty === "General Physician") { spec = W.spec * 0.4; reasons.push("A general physician is a good first stop and can refer you"); }
     else continue;
-    const dist = Math.max(0.1, 1 - clinic.distanceKm / p.maxKm) * W.dist;
-    if (clinic.distanceKm <= 2.5) reasons.push(`Only ${clinic.distanceKm} km away`);
+    const dist = distance === undefined ? W.dist * 0.5 : Math.max(0.1, 1 - distance / p.maxKm) * W.dist;
+    if (distance !== undefined && distance <= 2.5) reasons.push(`Only ${distance.toFixed(1)} km away`);
     const date = p.urgent ? toISO(ctx.now) : p.date;
     const avail = availabilityAt(doc, date, p.urgent ? "" : p.time, ctx);
     let av = 0;
@@ -138,13 +143,14 @@ export function recommend(p: RecPrefs, ctx: Ctx, waits: Record<string, number>):
     const fee = Math.max(0, 1 - doc.fee / p.maxFee) * W.fee;
     if (doc.fee <= p.maxFee * 0.6) reasons.push("Consultation fee is comfortably within your budget");
     const total = spec + dist + av + rate + fee;
-    out.push({ doctor: doc, clinic, score: Math.min(99, Math.round(45 + total * 0.54)), reasons: reasons.slice(0, 4), avail });
+    out.push({ doctor: doc, clinic, score: Math.min(99, Math.round(45 + total * 0.54)), reasons: reasons.slice(0, 4), avail, distanceKm: distance });
   }
   return out.sort((a, b) => b.score - a.score).slice(0, 9);
 }
 
 /** Urgent care ranking: best-rated with the shortest wait, nearby. */
-export function urgentScore(c: Clinic, wait: number) {
-  return Math.round(((c.rating - 3.5) / 1.5) * 40 + Math.max(0, 1 - wait / 60) * 40 + Math.max(0, 1 - c.distanceKm / 8) * 20);
+export function urgentScore(c: Clinic, wait: number, distance?: number) {
+  const distanceScore = distance === undefined ? 10 : Math.max(0, 1 - distance / 8) * 20;
+  return Math.round(((c.rating - 3.5) / 1.5) * 40 + Math.max(0, 1 - wait / 60) * 40 + distanceScore);
 }
 export const allClinics = CLINICS;

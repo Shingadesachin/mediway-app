@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, MapPin, Search, Siren, Sparkles } from "lucide-react";
+import { AlertTriangle, Search, Siren, Sparkles } from "lucide-react";
 import { FindTabs } from "@/components/FindTabs";
 import { DoctorCard } from "@/components/DoctorCard";
 import { Button, ButtonLink, Card, Disclaimer, EmptyState, ErrorState, Field, inputCls, PageHeader, Skeleton, Toggle } from "@/components/ui";
@@ -11,15 +11,18 @@ import { useQuery } from "@/lib/hooks";
 import { analyse, Triage } from "@/lib/triage";
 import { useApp } from "@/lib/store";
 import { fmtTime, fromMin, rupee, toISO } from "@/lib/utils";
+import { useUserLocation } from "@/lib/location";
+import { LocationPicker } from "@/components/LocationPicker";
 
 const STEPS = ["Analyzing your preferences...", "Finding suitable healthcare providers...", "Ranking nearby options..."];
 const TIMES = Array.from({ length: 36 }, (_, i) => fromMin(360 + i * 30)); // 6:00 to 23:30
 
 export default function Recommendations() {
-  const { ctx, waits, now, user } = useApp();
+  const { ctx, waits, now } = useApp();
+  const { location, setLocation } = useUserLocation();
   const q = useQuery();
   const today = toISO(now);
-  const [f, setF] = useState({ text: "", specialty: "", loc: user?.location && user.location !== "Current location" ? user.location : "", date: today, time: "", maxKm: 8, maxFee: 1500, urgent: false });
+  const [f, setF] = useState({ text: "", specialty: "", date: today, time: "", maxKm: 10, maxFee: 1500, urgent: false });
   const [phase, setPhase] = useState<"form" | "loading" | "results" | "error">("form");
   const [step, setStep] = useState(0);
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -36,7 +39,7 @@ export default function Recommendations() {
       // Simulated API call. Replace with: await fetch("/api/recommend", { method: "POST", body: JSON.stringify(v) })
       for (let i = 0; i < STEPS.length; i++) { setStep(i); await new Promise((r) => setTimeout(r, 800)); }
       if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("offline");
-      const r = recommend({ specialty: spec, date: v.date, time: v.time, maxKm: v.maxKm, maxFee: v.maxFee, urgent: v.urgent }, ctx, waits);
+      const r = recommend({ specialty: spec, date: v.date, time: v.time, maxKm: v.maxKm, maxFee: v.maxFee, urgent: v.urgent, origin: location ?? undefined }, ctx, waits);
       setRecs(r); setTri(t); setUsedSpec(spec); setPhase("results");
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch { setPhase("error"); }
@@ -45,8 +48,8 @@ export default function Recommendations() {
   useEffect(() => {
     if (!q || started.current) return;
     started.current = true;
-    const p = { text: q.get("text") ?? "", specialty: q.get("specialty") ?? "", loc: q.get("loc") ?? f.loc };
-    if (p.text || p.specialty || p.loc) setF((x) => ({ ...x, ...p }));
+    const p = { text: q.get("text") ?? "", specialty: q.get("specialty") ?? "" };
+    if (p.text || p.specialty) setF((x) => ({ ...x, ...p }));
     if (q.get("run")) run(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
@@ -68,14 +71,12 @@ export default function Recommendations() {
               <Field label="Required specialty" hint="Leave on Not sure and we'll suggest one.">
                 <select className={inputCls} value={f.specialty} onChange={(e) => set("specialty", e.target.value)}><option value="">Not sure</option>{SPECIALTIES.map((s) => <option key={s}>{s}</option>)}</select>
               </Field>
-              <Field label="Preferred location">
-                <div className="relative"><MapPin className="pointer-events-none absolute left-4 top-3.5 h-5 w-5 text-brand-500" /><input className={inputCls + " pl-12"} value={f.loc} onChange={(e) => set("loc", e.target.value)} placeholder="Enter your location" /></div>
-              </Field>
+              <div className="sm:col-span-2"><LocationPicker location={location} onChange={setLocation} /></div>
               <Field label="Preferred appointment date"><input type="date" className={inputCls} min={today} value={f.date} disabled={f.urgent} onChange={(e) => set("date", e.target.value || today)} /></Field>
               <Field label="Preferred appointment time">
                 <select className={inputCls} value={f.time} disabled={f.urgent} onChange={(e) => set("time", e.target.value)}><option value="">Any time</option>{TIMES.map((t) => <option key={t} value={t}>{fmtTime(t)}</option>)}</select>
               </Field>
-              <Field label={`Distance: within ${f.maxKm} km`}><input type="range" min={1} max={15} value={f.maxKm} onChange={(e) => set("maxKm", +e.target.value)} className="h-12 w-full" /></Field>
+              <Field label="Search radius"><select className={inputCls} value={f.maxKm} onChange={(e) => set("maxKm", +e.target.value)}>{[1, 3, 5, 10, 25].map((n) => <option key={n} value={n}>{n} km</option>)}</select></Field>
               <Field label={`Consultation fee: up to ${rupee(f.maxFee)}`}><input type="range" min={300} max={2000} step={100} value={f.maxFee} onChange={(e) => set("maxFee", +e.target.value)} className="h-12 w-full" /></Field>
             </div>
             <div className="flex items-center justify-between gap-4 rounded-xl bg-aqua-50 p-4">

@@ -9,9 +9,15 @@ import { freeSlots, nextFree, slotState, slotTimes } from "@/lib/engine";
 import { useQuery } from "@/lib/hooks";
 import { Appointment, useApp } from "@/lib/store";
 import { addDays, cn, dayLabel, fmtTime, longDate, rupee, shortDate, toISO, toMin, validPhone } from "@/lib/utils";
+import { PhoneInput } from "@/components/PhoneInput";
+import { LocationPicker } from "@/components/LocationPicker";
+import { MapPanel } from "@/components/MapPanel";
+import { useUserLocation } from "@/lib/location";
+import { CLINICS } from "@/lib/data";
 
 export default function Book() {
   const { ctx, now, user, appointments, book, reschedule, emergencies, notices } = useApp();
+  const { location, setLocation } = useUserLocation();
   const [busy, setBusy] = useState(false);
   const q = useQuery();
   const router = useRouter();
@@ -137,6 +143,10 @@ export default function Book() {
         </div>
 
         <div>
+          <div className="mb-4 space-y-3">
+            <LocationPicker location={location} onChange={setLocation} />
+            <MapPanel className="h-64" items={CLINICS.map((c) => ({ id: c.id, label: c.name, lat: c.lat, lng: c.lng, kind: c.urgent ? "urgent" as const : "clinic" as const }))} selected={clinic.id} userLocation={location} />
+          </div>
           <Card className="space-y-4 p-5 lg:sticky lg:top-24">
             <h2 className="text-lg font-bold">Appointment summary</h2>
             <dl className="space-y-2 text-sm">
@@ -147,7 +157,7 @@ export default function Book() {
             {!resched && (
               <>
                 <Field label="Patient name"><input className={inputCls} value={name} onChange={(e) => { setName(e.target.value); setErr(""); }} autoComplete="name" /></Field>
-                <Field label="Mobile number" hint="Your token and updates go to this number on WhatsApp and SMS."><input className={inputCls} value={phone} onChange={(e) => { setPhone(e.target.value); setErr(""); }} inputMode="tel" autoComplete="tel" placeholder="98200 12345" /></Field>
+                <Field label="Mobile number" hint="Your token and updates go to this number on WhatsApp and SMS."><PhoneInput value={phone} onChange={(value) => { setPhone(value); setErr(""); }} /></Field>
                 <Field label="Reason for visit (optional)"><input className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. fever since 2 days" /></Field>
               </>
             )}

@@ -9,20 +9,22 @@ import { Toasts } from "@/components/Toasts";
 import { Button, ButtonLink, Card, Chip, Disclaimer, inputCls, Segmented } from "@/components/ui";
 import { SPECIALTIES } from "@/lib/data";
 import { useApp } from "@/lib/store";
+import { useUserLocation } from "@/lib/location";
+import { LocationPicker } from "@/components/LocationPicker";
 
 type Mode = "specialty" | "doctor" | "clinic" | "nearby";
 
 export default function Landing() {
   const { user } = useApp();
+  const { location, setLocation } = useUserLocation();
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("specialty");
   const [spec, setSpec] = useState("");
   const [text, setText] = useState("");
-  const [loc, setLoc] = useState("");
 
   const go = (e: React.FormEvent) => {
     e.preventDefault();
-    const l = encodeURIComponent(loc);
+    const l = encodeURIComponent(location?.label || "");
     if (mode === "specialty") router.push(`/recommendations?specialty=${encodeURIComponent(spec)}&loc=${l}&run=1`);
     if (mode === "doctor") router.push(`/find-doctor?q=${encodeURIComponent(text)}`);
     if (mode === "clinic") router.push(`/clinics?q=${encodeURIComponent(text)}&loc=${l}`);
@@ -35,7 +37,7 @@ export default function Landing() {
       <header className="mx-auto flex h-20 max-w-6xl items-center justify-between px-4 sm:px-6">
         <Logo href="/" />
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/staff/login" className="hidden h-10 items-center rounded-xl px-3 text-sm font-semibold text-slate-600 hover:bg-brand-50 md:inline-flex">For clinics</Link>
+          <Link href="/staff/signup" className="hidden h-10 items-center rounded-xl px-3 text-sm font-semibold text-slate-600 hover:bg-brand-50 md:inline-flex">For clinics</Link>
           <Link href="/emergency" className="inline-flex h-10 items-center gap-2 rounded-xl bg-rescue-600 px-3.5 text-sm font-bold text-white hover:bg-rescue-700"><Siren className="h-4 w-4" /> <span className="hidden sm:inline">Emergency Help</span><span className="sm:hidden">SOS</span></Link>
           {user ? (
             <ButtonLink href="/dashboard" size="sm">Open dashboard</ButtonLink>
@@ -71,10 +73,7 @@ export default function Landing() {
               )}
               {(mode === "doctor" || mode === "clinic") && <input className={inputCls} value={text} onChange={(e) => setText(e.target.value)} placeholder={mode === "doctor" ? "Doctor name or specialty" : "Clinic name or area"} aria-label={mode === "doctor" ? "Search doctors" : "Search clinics"} />}
               {mode === "nearby" && <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">We'll show urgent care clinics around you, ranked by current wait time.</p>}
-              <div className="relative">
-                <MapPin className="pointer-events-none absolute left-4 top-3.5 h-5 w-5 text-brand-500" aria-hidden />
-                <input className={inputCls + " pl-12"} value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="Enter your location" aria-label="Your location" />
-              </div>
+              <LocationPicker location={location} onChange={setLocation} />
               <Button size="lg" className="w-full sm:w-auto"><Search className="h-5 w-5" /> Get Recommendations</Button>
             </form>
           </Card>
@@ -120,7 +119,7 @@ export default function Landing() {
         <div className="rounded-3xl bg-white p-7 border border-brand-100">
           <h2 className="flex items-center gap-2 text-xl font-bold"><ClipboardCheck className="h-5 w-5 text-brand-600" /> Run a clinic?</h2>
           <p className="mt-2 text-sm text-slate-600">The clinic desk is a separate app for your reception team: live queue, walk-in registration, analytics, and automatic messages when a doctor is called away.</p>
-          <ButtonLink href="/staff/login" variant="secondary" className="mt-4">Clinic staff login</ButtonLink>
+          <div className="mt-4 flex flex-wrap gap-2"><ButtonLink href="/staff/signup" variant="secondary">Register your clinic</ButtonLink><ButtonLink href="/staff/login" variant="ghost">Clinic staff login</ButtonLink></div>
         </div>
       </section>
 

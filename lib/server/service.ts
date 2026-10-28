@@ -1,13 +1,14 @@
 import crypto from "crypto";
-import { DOCTORS, doctorsOf, getClinic, getDoctor, CLINICS } from "../data";
+import { DOCTORS, doctorsOf, getClinic, getDoctor, CLINICS, SPECIALTIES } from "../data";
 import { Ctx, freeSlots, nextFree, slotKey, slotState, slotTimes } from "../engine";
 import * as M from "../messages";
-import type { Appointment, AuditRow, Block, Busy, ClinicSettings, Msg, Notif, NotifPrefs, PatientState, StaffDoctor, StaffState, User } from "../types";
-import { addDays, clinicNow, fmtTime, fromMin, nowMin, toEpoch, toISO, toMin, validPhone } from "../utils";
+import type { Appointment, AuditRow, Block, Busy, ClinicSettings, Msg, Notif, NotifPrefs, PatientState, StaffDoctor, StaffNotif, StaffState, User } from "../types";
+import { addDays, clinicNow, fmtTime, fromMin, normPhone, nowMin, toEpoch, toISO, toMin, validPhone } from "../utils";
 import type { Session } from "./auth";
 import { getDb } from "./db";
 import { HttpError } from "./errors";
 import { deliver, twilioConfigured } from "./messenger";
+import { sendPush } from "./push";
 
 const ACTIVE_SQL = "('confirmed','postponed','now-serving')";
 const newId = () => crypto.randomBytes(5).toString("hex");
@@ -26,7 +27,7 @@ const mapMsg = (r: Row): Msg => ({ id: r.id, clinicId: r.clinic_id, channel: r.c
 const mapNotif = (r: Row): Notif => ({ id: r.id, type: r.type, title: r.title, body: r.body, time: r.time, read: !!r.read, apptId: r.appt_id ?? undefined });
 const mapUser = (r: Row): User => ({
   id: r.id, role: r.role, name: r.name, phone: r.phone || "", email: r.email || "", age: r.age || "", location: r.location || "",
-  guest: !!r.is_guest, specialties: JSON.parse(r.specialties || "[]"), clinicId: r.clinic_id ?? undefined,
+  guest: !!r.is_guest, specialties: JSON.parse(r.specialties || "[]"), clinicId: r.clinic_id ?? undefined, doctorId: r.doctor_id ?? undefined,
 });
 const prefsOf = (userId?: string | null): NotifPrefs => {
   if (!userId) return DEFAULT_PREFS;
@@ -42,6 +43,15 @@ function audit(s: Session, action: string, detail: string) {
 function notify(userId: string | null | undefined, n: { type: Notif["type"]; title: string; body: string; apptId?: string }) {
   if (!userId) return;
   getDb().prepare("INSERT INTO notifications(id,user_id,type,title,body,time,read,appt_id) VALUES (?,?,?,?,?,?,0,?)").run(newId(), userId, n.type, n.title, n.body, Date.now(), n.apptId ?? null);
+  void sendPush(userId, { title: n.title, body: n.body, url: n.apptId ? `/appointments` : "/notifications" }).catch((error) => console.error("Could not send notification push.", error));
+}
+function notifyClinic(clinicId: string, doctorId: string, n: { type: string; title: string; body: string }) {
+  const db = getDb(), time = Date.now();
+  db.prepare("INSERT INTO staff_notifications(id,clinic_id,doctor_id,type,title,body,time,read) VALUES (?,?,?,?,?,?,?,0)")
+    .run(newId(), clinicId, doctorId, n.type, n.title, n.body, time);
+  const users = db.prepare("SELECT id,role FROM users WHERE (role='staff' AND clinic_id=?) OR (role='doctor' AND doctor_id=?)").all(clinicId, doctorId) as { id: string; role: string }[];
+  for (const user of users) void sendPush(user.id, { title: n.title, body: n.body, url: user.role === "doctor" ? "/doctor" : "/staff" })
+    .catch((error) => console.error("Could not send clinic notification push.", error));
 }
 function sendMsgs(a: Appointment, texts: { sms?: string; wa?: string }, kind: string, force = false) {
   const db = getDb(), pr = prefsOf(a.userId), demo = isDemo(a.id);
@@ -149,13 +159,15 @@ function confirmMsgs(a: Appointment) {
 /* ------------------------------ patient actions ------------------------------ */
 export function book(s: Session, p: Row): Appointment {
   const doctorId = String(p.doctorId || ""), date = String(p.date || ""), time = String(p.time || "");
-  const patient = cleanText(p.patient, 80), phone = cleanText(p.phone, 20), reason = cleanText(p.reason, 200);
+  const patient = cleanText(p.patient, 80), rawPhone = cleanText(p.phone, 40), reason = cleanText(p.reason, 200);
   if (patient.length < 2) throw new HttpError(400, "Enter the patient's name.");
-  if (!validPhone(phone)) throw new HttpError(400, "Enter a valid 10-digit mobile number so we can send your token.");
+  if (!validPhone(rawPhone)) throw new HttpError(400, "Enter a valid phone number so we can send your token.");
+  const phone = normPhone(rawPhone);
   checkSlot(doctorId, date, time);
   const a = insertAppt({ userId: s.id, patient, phone, doctorId, date, time, reason: reason || (p.urgent ? "Urgent visit" : "Consultation"), urgent: !!p.urgent, source: "online" });
   confirmMsgs(a);
   notify(s.id, { type: "confirmed", title: "Appointment confirmed", body: `Your appointment with ${getDoctor(doctorId).name} is confirmed. Token ${a.token}.`, apptId: a.id });
+  notifyClinic(a.clinicId, a.doctorId, { type: "booking", title: "New appointment booked", body: `${a.patient} booked token ${a.token} with ${getDoctor(a.doctorId).name}.` });
   return a;
 }
 function ownAppt(s: Session, id: string) {
@@ -193,13 +205,22 @@ export function patientAction(s: Session, type: string, p: Row): unknown {
     case "accept": acceptShift(ownAppt(s, String(p.id))); return { ok: true };
     case "profile": {
       const age = cleanText(p.age, 3), loc = cleanText(p.location, 120);
-      const email = cleanText(p.email, 120), phone = cleanText(p.phone, 20);
+      const email = cleanText(p.email, 120).toLowerCase(), rawPhone = cleanText(p.phone, 40);
+      if (cleanText(p.name, 80).length < 2) throw new HttpError(400, "Enter your full name.");
       if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, "Enter a valid email address.");
-      const specs = Array.isArray(p.specialties) ? p.specialties.map((x: unknown) => cleanText(x, 40)).slice(0, 12) : [];
+      if (age && (!/^\d{1,3}$/.test(age) || Number(age) < 1 || Number(age) > 120)) throw new HttpError(400, "Enter an age between 1 and 120.");
+      if (rawPhone && !validPhone(rawPhone)) throw new HttpError(400, "Enter a valid phone number for the selected country.");
+      const phone = rawPhone ? normPhone(rawPhone) : "";
+      const specs = Array.isArray(p.specialties) ? p.specialties.map((x: unknown) => cleanText(x, 40)).filter((x: string) => SPECIALTIES.includes(x)).slice(0, 12) : [];
       try {
         db.prepare("UPDATE users SET name=?, age=?, location=?, email=?, phone=?, phone_norm=?, specialties=? WHERE id=?")
-          .run(cleanText(p.name, 80) || s.name, age, loc, email || null, phone, phone.replace(/\D/g, "").slice(-10), JSON.stringify(specs), s.id);
-      } catch { throw new HttpError(409, "That email or phone is already used by another account."); }
+          .run(cleanText(p.name, 80), age, loc, email || null, phone, phone, JSON.stringify(specs), s.id);
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "SQLITE_CONSTRAINT_UNIQUE") {
+          throw new HttpError(409, "That email or phone is already used by another account.");
+        }
+        throw error;
+      }
       return { ok: true };
     }
     case "prefs": {
@@ -231,7 +252,7 @@ export function patientState(s: Session | null): PatientState {
   const emergencies = buildCtx(now).emergencies;
   const notices: Record<string, string> = {};
   for (const r of db.prepare("SELECT clinic_id, notice FROM clinic_settings WHERE notice<>''").all() as Row[]) notices[r.clinic_id] = r.notice;
-  const base = { serverTime: Date.now(), busy, blocks, emergencies, waits: computeWaits(now), notices };
+  const base = { serverTime: Date.now(), busy, blocks, emergencies, waits: computeWaits(now), notices, clinics: CLINICS, doctors: DOCTORS };
   if (!s || s.role !== "patient") return { ...base, user: null, prefs: DEFAULT_PREFS, appointments: [], notifications: [], messages: [], savedDoctors: [], savedClinics: [] };
   const u = db.prepare("SELECT * FROM users WHERE id=?").get(s.id) as Row;
   const saved = db.prepare("SELECT kind, ref_id FROM saved WHERE user_id=?").all(s.id) as Row[];
@@ -333,6 +354,7 @@ function callNext(s: Staff, p: Row) {
     sendMsgs(second, { sms: M.nextSms(second, doc) }, "next");
     notify(second.userId, { type: "queue", title: "You're next", body: `You are next for ${doc.name}. Token ${second.token}.`, apptId: second.id });
   }
+  if (first) notifyClinic(s.clinicId, doc.id, { type: "queue", title: "Doctor called next patient", body: `${doc.name} called token ${first.token}.` });
   audit(s, "call_next", first ? `Called ${first.token} (${first.patient}) for ${doc.name}` : `Queue empty for ${doc.name}`);
   return { called: first?.token ?? null };
 }
@@ -341,9 +363,10 @@ function walkIn(s: Staff, p: Row) {
   const doc = clinicDoctor(s, String(p.doctorId)), db = getDb(), now = clinicNow(), nm = nowMin(now);
   const settings = db.prepare("SELECT walkins FROM clinic_settings WHERE clinic_id=?").get(s.clinicId) as Row;
   if (settings && !settings.walkins) throw new HttpError(409, "Walk-ins are switched off in Settings.");
-  const patient = cleanText(p.patient, 80), phone = cleanText(p.phone, 20), reason = cleanText(p.reason, 200) || "Walk-in";
+  const patient = cleanText(p.patient, 80), rawPhone = cleanText(p.phone, 40), reason = cleanText(p.reason, 200) || "Walk-in";
   if (patient.length < 2) throw new HttpError(400, "Enter the patient's name.");
-  if (!validPhone(phone)) throw new HttpError(400, "Enter a 10-digit mobile number so the token can be sent.");
+  if (!validPhone(rawPhone)) throw new HttpError(400, "Enter a valid phone number so the token can be sent.");
+  const phone = normPhone(rawPhone);
   const ctx = buildCtx(now);
   if (ctx.emergencies[doc.id]) throw new HttpError(409, `${doc.name} is called away. Choose another doctor.`);
   if (nm < doc.shift[0] || nm >= doc.shift[1]) throw new HttpError(409, `${doc.name} is off duty now.`);
@@ -354,6 +377,7 @@ function walkIn(s: Staff, p: Row) {
   if (!time) throw new HttpError(409, `No free slot left today for ${doc.name}. Try another doctor.`);
   const a = insertAppt({ userId: null, patient, phone, doctorId: doc.id, date: toISO(now), time, reason, urgent, source: "walk-in" });
   confirmMsgs(a);
+  notifyClinic(a.clinicId, a.doctorId, { type: "walk-in", title: "New walk-in", body: `${a.patient} was registered as token ${a.token} with ${doc.name}.` });
   audit(s, "walk_in", `Registered ${patient} (${a.token}) with ${doc.name}${urgent ? " as urgent" : ""}`);
   return { appointment: a };
 }
@@ -432,15 +456,46 @@ export function staffState(s: Staff): StaffState {
   const settings: ClinicSettings = { walkins: !!st.walkins, delayMin: st.delay_min, reminderMin: st.reminder_min, notice: st.notice || "" };
   const ids = doctorsOf(s.clinicId).map((d) => d.id);
   return {
-    serverTime: Date.now(), user: mapUser(db.prepare("SELECT * FROM users WHERE id=?").get(s.id) as Row), settings, doctors,
+    serverTime: Date.now(), clinics: CLINICS, doctorsCatalog: DOCTORS,
+    user: mapUser(db.prepare("SELECT * FROM users WHERE id=?").get(s.id) as Row), settings, doctors,
     appointments: (db.prepare("SELECT * FROM appointments WHERE clinic_id=? AND date>=? AND date<=? ORDER BY date, time LIMIT 1500").all(s.clinicId, from, to) as Row[]).map(mapAppt),
     messages: (db.prepare("SELECT * FROM messages WHERE clinic_id=? ORDER BY time DESC LIMIT 120").all(s.clinicId) as Row[]).map(mapMsg),
+    staffNotifications: (db.prepare("SELECT * FROM staff_notifications WHERE clinic_id=? ORDER BY time DESC LIMIT 100").all(s.clinicId) as Row[]).map((r): StaffNotif => ({ id: r.id, doctorId: r.doctor_id ?? undefined, type: r.type, title: r.title, body: r.body, time: r.time, read: !!r.read })),
     audit: (db.prepare("SELECT * FROM audit WHERE clinic_id=? ORDER BY time DESC LIMIT 30").all(s.clinicId) as Row[]).map((r): AuditRow => ({ id: r.id, staffName: r.staff_name || "", action: r.action, detail: r.detail || "", time: r.time })),
     blocks: (db.prepare(`SELECT * FROM blocks WHERE date>=? AND doctor_id IN (${ids.map(() => "?").join(",")}) ORDER BY date, from_min`).all(today, ...ids) as Row[]).map((b): Block => ({ id: b.id, doctorId: b.doctor_id, date: b.date, from: b.from_min, to: b.to_min, reason: b.reason })),
     wait: computeWaits(now)[s.clinicId] ?? 0, twilio: twilioConfigured(),
     // ctx is built to ensure away flags are consistent
     ...(ctx ? {} : {}),
   };
+}
+
+export function doctorState(s: Session & { doctorId: string }) {
+  const db = getDb(), doctor = getDoctor(s.doctorId), today = toISO(clinicNow());
+  const appointments = (db.prepare(`SELECT * FROM appointments WHERE doctor_id=? AND date=? AND status IN ${ACTIVE_SQL} ORDER BY time,created_at`).all(doctor.id, today) as Row[]).map(mapAppt);
+  return { serverTime: Date.now(), doctor, appointments };
+}
+
+export function doctorAction(s: Session & { doctorId: string }, type: string, p: Row) {
+  const doctor = getDoctor(s.doctorId), clinicId = doctor.clinicId;
+  const actor: Staff = { ...s, clinicId };
+  if (type === "next") return callNext(actor, { doctorId: doctor.id });
+  const id = cleanText(p.id, 80), row = getDb().prepare("SELECT * FROM appointments WHERE id=? AND doctor_id=? AND date=?").get(id, doctor.id, toISO(clinicNow())) as Row | undefined;
+  if (!row) throw new HttpError(404, "Appointment not found in your queue.");
+  const appointment = mapAppt(row);
+  if (type === "complete") {
+    if (appointment.status !== "now-serving") throw new HttpError(409, "Only the current patient can be marked done.");
+    getDb().prepare("UPDATE appointments SET status='completed',completed_at=? WHERE id=? AND doctor_id=?").run(Date.now(), id, doctor.id);
+    audit(actor, "doctor_complete", `${s.name} completed ${appointment.token}`);
+    return { ok: true };
+  }
+  if (type === "no-show") {
+    if (!["confirmed", "postponed", "now-serving"].includes(appointment.status)) throw new HttpError(409, "Only a waiting patient can be marked missed.");
+    getDb().prepare("UPDATE appointments SET status='no-show' WHERE id=? AND doctor_id=?").run(id, doctor.id);
+    sendMsgs(appointment, { sms: M.noShowSms(appointment, getClinic(clinicId)) }, "no-show");
+    audit(actor, "doctor_no_show", `${s.name} marked ${appointment.token} missed`);
+    return { ok: true };
+  }
+  throw new HttpError(400, "Unknown doctor action.");
 }
 
 /* ------------------------------ accounts ------------------------------ */

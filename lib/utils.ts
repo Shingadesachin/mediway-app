@@ -1,3 +1,5 @@
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+
 export const cn = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(" ");
 export const pad = (n: number) => String(n).padStart(2, "0");
 export const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -47,12 +49,10 @@ export function timeAgo(ts: number, now: number) {
   return `${Math.round(h / 24)} d ago`;
 }
 export function normPhone(p: string) {
-  const digits = p.replace(/[^\d+]/g, "");
-  if (digits.startsWith("+")) return digits;
-  if (digits.length === 10) return `+91${digits}`;
-  return `+${digits}`;
+  const phone = parsePhoneNumberFromString(p, "IN");
+  return phone?.isValid() ? phone.number : "";
 }
-export const validPhone = (p: string) => p.replace(/\D/g, "").length >= 10;
+export const validPhone = (p: string) => !!normPhone(p);
 export const mapsDirections = (query: string) =>
   `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}`;
 

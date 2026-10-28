@@ -15,14 +15,16 @@ export interface Msg {
   apptId?: string; status: "queued" | "sent" | "simulated" | "failed"; kind: string;
 }
 export interface User {
-  id: string; role: "patient" | "staff"; name: string; phone: string; email: string; age: string; location: string;
-  guest?: boolean; specialties: string[]; clinicId?: string;
+  id: string; role: "patient" | "staff" | "doctor" | "admin"; name: string; phone: string; email: string; age: string; location: string;
+  guest?: boolean; specialties: string[]; clinicId?: string; doctorId?: string;
 }
 export interface NotifPrefs { sms: boolean; whatsapp: boolean; reminders: boolean; email: boolean }
 export interface Block { id: string; doctorId: string; date: string; from: number; to: number; reason: string }
 
 export interface PatientState {
   serverTime: number;
+  clinics: Clinic[];
+  doctors: Doctor[];
   user: User | null;
   prefs: NotifPrefs;
   appointments: Appointment[];
@@ -38,15 +40,19 @@ export interface PatientState {
 }
 
 export interface StaffDoctor { id: string; away: boolean; awaySince?: number; awayReason?: string; etaMin?: number }
+export interface StaffNotif { id: string; doctorId?: string; type: string; title: string; body: string; time: number; read: boolean }
 export interface AuditRow { id: string; staffName: string; action: string; detail: string; time: number }
 export interface ClinicSettings { walkins: boolean; delayMin: number; reminderMin: number; notice: string }
 export interface StaffState {
   serverTime: number;
+  clinics: Clinic[];
+  doctorsCatalog: Doctor[];
   user: User;
   settings: ClinicSettings;
   doctors: StaffDoctor[];
   appointments: Appointment[];
   messages: Msg[];
+  staffNotifications: StaffNotif[];
   audit: AuditRow[];
   blocks: Block[];
   wait: number;
@@ -64,3 +70,4 @@ export interface Analytics {
   reasons: { reason: string; count: number }[];
   peakHour: string;
 }
+import type { Clinic, Doctor } from "./data";

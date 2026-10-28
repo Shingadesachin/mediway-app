@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import type Database from "better-sqlite3";
-import { CLINICS, DEMO_NAMES, DOCTORS, getClinic } from "../data";
+import { CLINICS, DEMO_NAMES, DOCTORS, getClinic, replaceCatalog, type Clinic, type Doctor } from "../data";
 import { slotTimes } from "../engine";
 import * as M from "../messages";
 import { addDays, clinicNow, fromMin, nowMin, toEpoch, toISO, toMin } from "../utils";
@@ -21,9 +21,52 @@ export const DEMO_STAFF = [
   { email: "night@mediway.app", clinic: "c11", name: "Farida Khan" },
 ];
 export const DEMO_STAFF_PASSWORD = "desk1234";
+export const DEMO_ADMIN = { email: "admin@mediway.app", password: "admin1234" };
+export const DEMO_DOCTOR_PASSWORD = "doctor1234";
+
+function ensureCatalog(db: Database.Database) {
+  const clinicInsert = db.prepare(`INSERT OR IGNORE INTO clinics
+    (id,code,name,area,address,lat,lng,rating,reviews,open_json,urgent,base_wait,phone,services_json,blurb,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active')`);
+  for (const c of CLINICS) clinicInsert.run(c.id,c.code,c.name,c.area,c.address,c.lat,c.lng,c.rating,c.reviews,JSON.stringify(c.open),Number(c.urgent),c.baseWait,c.phone,JSON.stringify(c.services),c.blurb);
+  const doctorInsert = db.prepare(`INSERT OR IGNORE INTO doctors
+    (id,name,specialty,clinic_id,rating,reviews,exp,fee,shift_start,shift_end,avg_consult,languages_json,about,treats_json,status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active')`);
+  for (const d of DOCTORS) doctorInsert.run(d.id,d.name,d.specialty,d.clinicId,d.rating,d.reviews,d.exp,d.fee,d.shift[0],d.shift[1],d.avgConsult,JSON.stringify(d.languages),d.about,JSON.stringify(d.treats));
+  const rows = db.prepare("SELECT * FROM clinics WHERE status='active' ORDER BY id").all() as any[];
+  const docs = db.prepare("SELECT * FROM doctors WHERE status='active' ORDER BY id").all() as any[];
+  const clinics: Clinic[] = rows.map((r) => ({
+    id:r.id,code:r.code,name:r.name,area:r.area,address:r.address,lat:r.lat,lng:r.lng,rating:r.rating,reviews:r.reviews,
+    open:JSON.parse(r.open_json),urgent:!!r.urgent,baseWait:r.base_wait,phone:r.phone,services:JSON.parse(r.services_json),blurb:r.blurb,status:r.status,
+  }));
+  const doctors: Doctor[] = docs.map((r) => ({
+    id:r.id,name:r.name,specialty:r.specialty,clinicId:r.clinic_id,rating:r.rating,reviews:r.reviews,exp:r.exp,fee:r.fee,
+    shift:[r.shift_start,r.shift_end],avgConsult:r.avg_consult,languages:JSON.parse(r.languages_json),about:r.about,treats:JSON.parse(r.treats_json),status:r.status,
+  }));
+  replaceCatalog(clinics, doctors);
+}
+
+function ensureDemoLogins(db: Database.Database) {
+  const insert = db.prepare(`INSERT OR IGNORE INTO users
+    (id,role,name,email,phone,phone_norm,password_hash,age,location,specialties,clinic_id,doctor_id,is_guest,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)`);
+  const now = Date.now();
+  insert.run("admin-demo","admin","MediWay Admin",DEMO_ADMIN.email,"","",hashPassword(DEMO_ADMIN.password),"","","[]",null,null,now);
+  const known = new Set((db.prepare("SELECT doctor_id FROM users WHERE role='doctor'").all() as { doctor_id: string }[]).map((u) => u.doctor_id));
+  for (const doctor of DOCTORS.slice(0, 2)) {
+    if (known.has(doctor.id)) continue;
+    const slug = doctor.name.replace(/^Dr\.?\s*/i, "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "");
+    insert.run(`doctor-${doctor.id}`,"doctor",doctor.name,`${slug}@mediway.app`,"","",hashPassword(DEMO_DOCTOR_PASSWORD),"","","[]",doctor.clinicId,doctor.id,now);
+  }
+}
 
 export function seedIfEmpty(db: Database.Database) {
-  if ((db.prepare("SELECT COUNT(*) c FROM users").get() as { c: number }).c > 0) return;
+  ensureCatalog(db);
+  if ((db.prepare("SELECT COUNT(*) c FROM users").get() as { c: number }).c > 0) {
+    for (const c of CLINICS) db.prepare("INSERT OR IGNORE INTO clinic_settings(clinic_id) VALUES (?)").run(c.id);
+    ensureDemoLogins(db);
+    return;
+  }
   const now = clinicNow();
   const today = toISO(now), nm = nowMin(now), R = rng(20260101);
   const ins = db.prepare(`INSERT INTO appointments(id,token,clinic_id,doctor_id,user_id,patient_name,phone,date,time,reason,urgent,status,source,is_demo,prev_date,prev_time,reminded,created_at,started_at,completed_at,wait_min)
@@ -32,16 +75,16 @@ export function seedIfEmpty(db: Database.Database) {
   const token = (cid: string, date: string) => { const k = cid + "|" + date; const e = (seqs[k] ||= { cid, date, n: 0 }); e.n++; return `${getClinic(cid).code}-${String(e.n).padStart(3, "0")}`; };
   const pick = <T,>(a: T[]) => a[Math.floor(R() * a.length)];
   const person = () => (R() < 0.5 ? pick(DEMO_NAMES) : `${pick(FIRST)} ${pick(SURNAMES)}`);
-  const phone = () => `+91 9${Math.floor(100000000 + R() * 899999999)}`;
+  const phone = () => `+919${Math.floor(100000000 + R() * 899999999)}`;
 
   db.transaction(() => {
     // accounts
     const u = db.prepare(`INSERT INTO users(id,role,name,email,phone,phone_norm,password_hash,age,location,specialties,clinic_id,is_guest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?)`);
     const demoId = "u-demo";
-    u.run(demoId, "patient", "Aarav Mehta", DEMO_PATIENT.email, "+91 98200 12345", "9820012345", hashPassword(DEMO_PATIENT.password), "34", "Andheri West, Mumbai", JSON.stringify(["General Physician", "Dermatologist"]), null, Date.now());
+    u.run(demoId, "patient", "Aarav Mehta", DEMO_PATIENT.email, "+919820012345", "+919820012345", hashPassword(DEMO_PATIENT.password), "34", "Andheri West, Mumbai", JSON.stringify(["General Physician", "Dermatologist"]), null, Date.now());
     const sh = hashPassword(DEMO_STAFF_PASSWORD);
     for (const s of DEMO_STAFF) u.run("s-" + s.clinic, "staff", s.name, s.email, "", "", sh, "", "", "[]", s.clinic, Date.now());
-    for (const c of CLINICS) db.prepare("INSERT INTO clinic_settings(clinic_id) VALUES (?)").run(c.id);
+    for (const c of CLINICS) db.prepare("INSERT OR IGNORE INTO clinic_settings(clinic_id) VALUES (?)").run(c.id);
     db.prepare("INSERT INTO saved(user_id,kind,ref_id) VALUES (?,?,?),(?,?,?),(?,?,?)").run(demoId, "doctor", "d9", demoId, "doctor", "d6", demoId, "clinic", "c1");
 
     // history (21 days), today, and the next 7 days
@@ -92,7 +135,7 @@ export function seedIfEmpty(db: Database.Database) {
     slot = slot || { date: toISO(addDays(now, 1)), time: "10:30" };
     const mine = (doc: string, date: string, time: string, reason: string, status: string, wait: number | null) => {
       const d = DOCTORS.find((x) => x.id === doc)!;
-      const rec = { id: id(), token: token(d.clinicId, date), clinic_id: d.clinicId, doctor_id: doc, user_id: demoId, patient_name: "Aarav Mehta", phone: "+91 98200 12345", date, time, reason, urgent: 0, status, source: "online", created_at: Date.now() - 864e5, started_at: null, completed_at: null, wait_min: wait };
+      const rec = { id: id(), token: token(d.clinicId, date), clinic_id: d.clinicId, doctor_id: doc, user_id: demoId, patient_name: "Aarav Mehta", phone: "+919820012345", date, time, reason, urgent: 0, status, source: "online", created_at: Date.now() - 864e5, started_at: null, completed_at: null, wait_min: wait };
       ins.run(rec);
       return rec;
     };
@@ -110,8 +153,9 @@ export function seedIfEmpty(db: Database.Database) {
       m.run(id(), a.user_id, a.clinic_id, i % 2 ? "SMS" : "WhatsApp", a.phone, a.patient_name, i % 2 ? M.confirmSms(A, doc, clinic, now, 10) : M.confirmWa(A, doc, clinic, now, 10), Date.now() - (i + 2) * 7 * 60e3, a.id, "confirmation");
     });
     db.prepare("INSERT INTO messages(id,user_id,clinic_id,channel,to_phone,name,body,time,appt_id,status,kind) VALUES (?,?,?,?,?,?,?,?,?,'simulated','confirmation')")
-      .run(id(), demoId, d1.clinicId, "WhatsApp", "+91 98200 12345", "Aarav Mehta", M.confirmWa({ token: up.token, date: up.date, time: up.time }, d1, getClinic(d1.clinicId), now, 12), Date.now() - 36e5, up.id);
+      .run(id(), demoId, d1.clinicId, "WhatsApp", "+919820012345", "Aarav Mehta", M.confirmWa({ token: up.token, date: up.date, time: up.time }, d1, getClinic(d1.clinicId), now, 12), Date.now() - 36e5, up.id);
     // token sequence continues after the seeded history
     for (const e of Object.values(seqs)) db.prepare("INSERT INTO token_seq(clinic_id,date,seq) VALUES (?,?,?) ON CONFLICT(clinic_id,date) DO UPDATE SET seq=excluded.seq").run(e.cid, e.date, e.n);
   })();
+  ensureDemoLogins(db);
 }

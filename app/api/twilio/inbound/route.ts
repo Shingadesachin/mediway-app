@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/server/db";
 import { acceptShift, cancel, mapAppt } from "@/lib/server/service";
-import { clinicNow, toISO } from "@/lib/utils";
+import { clinicNow, normPhone, toISO } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 const xml = (t: string) => new NextResponse(`<?xml version="1.0" encoding="UTF-8"?><Response><Message>${t.replace(/[<&>]/g, "")}</Message></Response>`, { headers: { "Content-Type": "text/xml" } });
@@ -20,9 +20,9 @@ export async function POST(req: Request) {
     const got = req.headers.get("x-twilio-signature") || "";
     if (got.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(sig))) return new NextResponse("Forbidden", { status: 403 });
   }
-  const from = (params.From || "").replace(/\D/g, "").slice(-10), body = (params.Body || "").trim().toUpperCase();
-  if (from.length < 10) return xml("Sorry, we could not read your number.");
-  const rows = getDb().prepare(`SELECT * FROM appointments WHERE date>=? AND status IN ('confirmed','postponed') AND replace(replace(replace(phone,' ',''),'+',''),'-','') LIKE ? ORDER BY date, time`).all(toISO(clinicNow()), `%${from}`) as never[];
+  const from = normPhone(params.From || ""), body = (params.Body || "").trim().toUpperCase();
+  if (!from) return xml("Sorry, we could not read your number.");
+  const rows = getDb().prepare(`SELECT * FROM appointments WHERE date>=? AND status IN ('confirmed','postponed') AND phone=? ORDER BY date, time`).all(toISO(clinicNow()), from) as never[];
   const a = rows.length ? mapAppt(rows[0]) : null;
   if (!a) return xml("MediWay: We could not find an upcoming appointment for this number.");
   if (body === "1" && a.status === "postponed") { acceptShift(a); return xml(`MediWay: Thanks. Token ${a.token} is confirmed for ${a.time} on ${a.date}.`); }

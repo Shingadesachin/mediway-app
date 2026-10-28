@@ -10,10 +10,11 @@ import { Avatar, Badge, Button, ButtonLink, Card, Modal, Rating } from "./ui";
 
 const liveTone = { now: "green", busy: "amber", off: "gray", emergency: "red" } as const;
 
-export function DoctorCard({ doctor, rec, best, date, time }: { doctor: Doctor; rec?: Rec; best?: boolean; date?: string; time?: string }) {
+export function DoctorCard({ doctor, rec, best, date, time, distanceKm }: { doctor: Doctor; rec?: Rec; best?: boolean; date?: string; time?: string; distanceKm?: number }) {
   const { ctx, savedDoctors, toggleDoctor } = useApp();
   const [open, setOpen] = useState(false);
   const clinic = getClinic(doctor.clinicId);
+  const nearbyKm = distanceKm ?? rec?.distanceKm;
   const live = doctorLive(doctor, ctx);
   const day = date ?? toISO(ctx.now);
   let slots = freeSlots(doctor, day, ctx);
@@ -51,7 +52,7 @@ export function DoctorCard({ doctor, rec, best, date, time }: { doctor: Doctor; 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
             <Rating value={doctor.rating} count={doctor.reviews} />
             <span className="flex items-center gap-1"><BadgeCheck className="h-4 w-4 text-brand-500" aria-hidden /> {doctor.exp} yrs</span>
-            <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-brand-500" aria-hidden /> {clinic.distanceKm} km, {clinic.area}</span>
+            <span className="flex items-center gap-1"><MapPin className="h-4 w-4 text-brand-500" aria-hidden /> {nearbyKm !== undefined ? `${nearbyKm.toFixed(1)} km, ` : ""}{clinic.area}</span>
             <span className="flex items-center gap-1 font-semibold text-ink"><IndianRupee className="h-4 w-4 text-brand-500" aria-hidden />{rupee(doctor.fee).slice(1)}</span>
           </div>
         </div>

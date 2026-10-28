@@ -7,16 +7,49 @@ import { CLINICS, DOCTORS, SPECIALTIES, getClinic, getDoctor } from "@/lib/data"
 import { useApp } from "@/lib/store";
 import { fmtTime, shortDate } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { PhoneInput } from "@/components/PhoneInput";
+import { PasswordInput } from "@/components/PasswordInput";
+import { validPhone } from "@/lib/utils";
+import { PushNotifications } from "@/components/PushNotifications";
 
 export default function Profile() {
   const { user, updateUser, prefs, setPrefs, appointments, savedDoctors, savedClinics, toggleDoctor, toggleClinic, toast, logout } = useApp();
   const router = useRouter();
   const [f, setF] = useState({ name: "", age: "", phone: "", email: "", location: "" });
   const [spec, setSpec] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
   useEffect(() => { if (user) { setF({ name: user.name, age: user.age, phone: user.phone, email: user.email, location: user.location }); setSpec(user.specialties); } }, [user]);
   if (!user) return null;
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
-  const save = () => { updateUser({ ...f, specialties: spec }); toast({ type: "success", title: "Profile saved" }); };
+  const save = async () => {
+    if (f.name.trim().length < 2) return toast({ type: "error", title: "Enter your full name." });
+    if (f.email && !/^\S+@\S+\.\S+$/.test(f.email)) return toast({ type: "error", title: "Enter a valid email address." });
+    if (f.phone && !validPhone(f.phone)) return toast({ type: "error", title: "Enter a valid phone number." });
+    if (f.age && (!/^\d{1,3}$/.test(f.age) || Number(f.age) < 1 || Number(f.age) > 120)) return toast({ type: "error", title: "Enter an age between 1 and 120." });
+    setSaving(true);
+    try { await updateUser({ ...f, specialties: spec }); toast({ type: "success", title: "Profile saved" }); }
+    catch (e) { toast({ type: "error", title: (e as Error).message || "Could not save your profile." }); }
+    finally { setSaving(false); }
+  };
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault(); setPasswordError("");
+    if (newPassword.length < 8) return setPasswordError("Use at least 8 characters.");
+    if (newPassword !== confirmPassword) return setPasswordError("Passwords do not match.");
+    setPasswordBusy(true);
+    try {
+      const response = await fetch("/api/auth/change-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not change your password.");
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      toast({ type: "success", title: "Password changed" });
+    } catch (e) { setPasswordError((e as Error).message); }
+    finally { setPasswordBusy(false); }
+  };
   const history = appointments.filter((a) => a.status === "completed" || a.status === "cancelled").slice().reverse();
 
   return (
@@ -27,14 +60,26 @@ export default function Profile() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Full name"><input className={inputCls} value={f.name} onChange={set("name")} /></Field>
           <Field label="Age"><input className={inputCls} inputMode="numeric" value={f.age} onChange={set("age")} /></Field>
-          <Field label="Phone" hint="Tokens and updates are sent here"><input className={inputCls} inputMode="tel" value={f.phone} onChange={set("phone")} /></Field>
+          <Field label="Phone" hint="Tokens and updates are sent here"><PhoneInput value={f.phone} onChange={(phone) => setF({ ...f, phone })} /></Field>
           <Field label="Email"><input className={inputCls} type="email" value={f.email} onChange={set("email")} /></Field>
           <div className="sm:col-span-2"><Field label="Location"><input className={inputCls} value={f.location} onChange={set("location")} placeholder="Area or PIN code" /></Field></div>
         </div>
         <p className="mb-2 mt-5 text-sm font-semibold">Preferred specialties</p>
         <div className="flex flex-wrap gap-2">{SPECIALTIES.map((s) => <Chip key={s} active={spec.includes(s)} onClick={() => setSpec(spec.includes(s) ? spec.filter((x) => x !== s) : [...spec, s])}>{s}</Chip>)}</div>
-        <Button className="mt-6" onClick={save}><Save className="h-4 w-4" /> Save changes</Button>
+        <Button className="mt-6" onClick={save} disabled={saving}><Save className="h-4 w-4" /> {saving ? "Saving..." : "Save changes"}</Button>
       </Card>
+
+      {!user.guest && <Card className="p-5 sm:p-6">
+        <h2 className="mb-1 text-lg font-bold">Change password</h2>
+        <p className="mb-4 text-sm text-slate-600">Confirm your current password before choosing a new one.</p>
+        <form onSubmit={changePassword} className="grid gap-4 sm:grid-cols-3">
+          <Field label="Current password"><PasswordInput value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" /></Field>
+          <Field label="New password"><PasswordInput value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" /></Field>
+          <Field label="Confirm new password"><PasswordInput value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" /></Field>
+          {passwordError && <p className="text-sm text-rescue-600 sm:col-span-3" role="alert">{passwordError}</p>}
+          <div className="sm:col-span-3"><Button disabled={passwordBusy}>{passwordBusy ? "Changing..." : "Change password"}</Button></div>
+        </form>
+      </Card>}
 
       <Card className="p-5 sm:p-6">
         <h2 className="mb-1 text-lg font-bold">Notification preferences</h2>
@@ -45,6 +90,7 @@ export default function Profile() {
             <Toggle checked={prefs[k]} onChange={(v) => setPrefs({ [k]: v })} label={t} />
           </div>
         ))}
+        {!user.guest && <PushNotifications />}
       </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -58,7 +104,7 @@ export default function Profile() {
           <h2 className="mb-3 text-lg font-bold">Saved clinics</h2>
           {savedClinics.length === 0 && <p className="text-sm text-slate-500">Save clinics from the clinic list.</p>}
           <ul className="space-y-3">{savedClinics.map((id) => { const c = CLINICS.find((x) => x.id === id); if (!c) return null; return (
-            <li key={id} className="flex items-center gap-3"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{c.name}</p><p className="text-xs text-slate-500">{c.area} · {c.distanceKm} km</p></div><button onClick={() => toggleClinic(id)} className="text-sm text-slate-400 hover:text-rescue-600">Remove</button></li>); })}</ul>
+            <li key={id} className="flex items-center gap-3"><div className="min-w-0 flex-1"><p className="truncate font-semibold">{c.name}</p><p className="text-xs text-slate-500">{c.area}</p></div><button onClick={() => toggleClinic(id)} className="text-sm text-slate-400 hover:text-rescue-600">Remove</button></li>); })}</ul>
         </Card>
       </div>
 

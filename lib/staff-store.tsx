@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { StaffState } from "./types";
+import { replaceCatalog } from "./data";
 import { clinicNow, uid } from "./utils";
 
 export interface StaffToast { id: string; type: "success" | "error" | "info"; text: string }
@@ -36,14 +37,18 @@ export function StaffProvider({ children }: { children: React.ReactNode }) {
       const r = await fetch("/api/staff/state", { cache: "no-store" });
       if (r.status === 401 || r.status === 403) { router.replace("/staff/login"); return; }
       if (!r.ok) throw new Error();
-      if (alive.current) { setState(await r.json()); setNow(clinicNow()); setLost(false); }
+      if (alive.current) {
+        const next: StaffState = await r.json();
+        replaceCatalog(next.clinics, next.doctorsCatalog);
+        setState(next); setNow(clinicNow()); setLost(false);
+      }
     } catch { if (alive.current) setLost(true); }
   }, [router]);
 
   useEffect(() => {
     alive.current = true;
     refresh();
-    const p = setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+    const p = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
     const t = setInterval(() => setNow(clinicNow()), 15000);
     return () => { alive.current = false; clearInterval(p); clearInterval(t); };
   }, [refresh]);

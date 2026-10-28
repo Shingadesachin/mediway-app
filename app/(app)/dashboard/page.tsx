@@ -9,18 +9,21 @@ import { CLINICS, getClinic, getDoctor } from "@/lib/data";
 import { isClinicOpen, recommend, urgentScore } from "@/lib/engine";
 import { useApp } from "@/lib/store";
 import { dayLabel, fmtTime, timeAgo, toISO } from "@/lib/utils";
+import { useUserLocation } from "@/lib/location";
+import { distanceKm } from "@/lib/geo";
 
 export default function Dashboard() {
   const { user, now, ctx, appointments, notifications, waits } = useApp();
+  const { location } = useUserLocation();
   const hr = now.getHours();
   const greet = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const today = toISO(now);
   const upcoming = appointments.filter((a) => ["confirmed", "postponed", "now-serving"].includes(a.status) && a.date >= today).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
   const next = upcoming[0];
   const recent = appointments.filter((a) => a.status === "completed").sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time)).slice(0, 3);
-  const bestUrgent = CLINICS.filter((c) => c.urgent && isClinicOpen(c, now)).sort((a, b) => urgentScore(b, waits[b.id] ?? b.baseWait) - urgentScore(a, waits[a.id] ?? a.baseWait))[0];
-  const recDocs = recommend({ specialty: "", date: today, time: "", maxKm: 6, maxFee: 1500, urgent: false }, ctx, waits).slice(0, 2);
-  const recClinics = [...CLINICS].sort((a, b) => b.rating - a.rating + (a.distanceKm - b.distanceKm) * 0.05).slice(0, 2);
+  const bestUrgent = CLINICS.filter((c) => c.urgent && isClinicOpen(c, now)).sort((a, b) => urgentScore(b, waits[b.id] ?? b.baseWait, location ? distanceKm(location, b) : undefined) - urgentScore(a, waits[a.id] ?? a.baseWait, location ? distanceKm(location, a) : undefined))[0];
+  const recDocs = recommend({ specialty: "", date: today, time: "", maxKm: 6, maxFee: 1500, urgent: false, origin: location ?? undefined }, ctx, waits).slice(0, 2);
+  const recClinics = [...CLINICS].sort((a, b) => location ? distanceKm(location, a) - distanceKm(location, b) : b.rating - a.rating).slice(0, 2);
 
   const quick = [
     { href: "/urgent-care", icon: Zap, label: "Urgent care now", tone: "bg-aqua-50 text-aqua-700" },
@@ -69,7 +72,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between"><h2 className="text-xl font-bold">Shortest urgent care wait</h2><Badge tone="green">Live</Badge></div>
             <div className="mt-4 flex items-center gap-4">
               <div className="text-center"><p className="tnum font-display text-5xl font-extrabold text-brand-700">{waits[bestUrgent.id] ?? bestUrgent.baseWait}</p><p className="text-xs text-slate-500">min wait</p></div>
-              <div><p className="font-bold">{bestUrgent.name}</p><p className="text-sm text-slate-600">{bestUrgent.area}, {bestUrgent.distanceKm} km</p></div>
+              <div><p className="font-bold">{bestUrgent.name}</p><p className="text-sm text-slate-600">{bestUrgent.area}{location ? `, ${distanceKm(location, bestUrgent).toFixed(1)} km` : ""}</p></div>
             </div>
             <div className="mt-4 flex gap-3"><ButtonLink href={`/book?clinic=${bestUrgent.id}&urgent=1`} className="flex-1"><Timer className="h-4 w-4" /> Get a token</ButtonLink><ButtonLink href="/urgent-care" variant="secondary" className="flex-1">See all</ButtonLink></div>
           </Card>
@@ -88,7 +91,7 @@ export default function Dashboard() {
 
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-xl font-bold">Recommended Clinics</h2><Link href="/clinics" className="flex items-center text-sm font-semibold text-brand-600">See all <ChevronRight className="h-4 w-4" /></Link></div>
-        <div className="grid gap-4 md:grid-cols-2">{recClinics.map((c) => <ClinicCard key={c.id} clinic={c} />)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{recClinics.map((c) => <ClinicCard key={c.id} clinic={c} distanceKm={location ? distanceKm(location, c) : undefined} />)}</div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">

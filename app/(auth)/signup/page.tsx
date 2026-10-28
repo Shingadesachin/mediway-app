@@ -7,6 +7,8 @@ import { Toasts } from "@/components/Toasts";
 import { Button, Field, inputCls } from "@/components/ui";
 import { useApp } from "@/lib/store";
 import { validPhone } from "@/lib/utils";
+import { PhoneInput } from "@/components/PhoneInput";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function Signup() {
   const { signup, guest } = useApp();
@@ -20,7 +22,7 @@ export default function Signup() {
     e.preventDefault();
     const er: Record<string, string> = {};
     if (f.name.trim().length < 2) er.name = "Enter your full name.";
-    if (!validPhone(f.phone)) er.phone = "Enter a 10-digit mobile number. Your token is sent here.";
+    if (!validPhone(f.phone)) er.phone = "Enter a valid phone number for the selected country.";
     if (!/^\S+@\S+\.\S+$/.test(f.email)) er.email = "Enter a valid email address.";
     if (f.password.length < 8) er.password = "Use at least 8 characters.";
     if (f.confirm !== f.password) er.confirm = "Passwords do not match.";
@@ -37,11 +39,11 @@ export default function Signup() {
       <Toasts />
       <form onSubmit={submit} className="space-y-4" noValidate>
         <Field label="Full name" error={errs.name}><input className={inputCls} value={f.name} onChange={set("name")} autoComplete="name" /></Field>
-        <Field label="Mobile number" error={errs.phone} hint="We send your token on WhatsApp and SMS."><input className={inputCls} value={f.phone} onChange={set("phone")} inputMode="tel" autoComplete="tel" placeholder="98200 12345" /></Field>
+        <Field label="Mobile number" error={errs.phone} hint="We send your token on WhatsApp and SMS."><PhoneInput value={f.phone} onChange={(value) => { setF({ ...f, phone: value }); setErrs({ ...errs, phone: "" }); }} /></Field>
         <Field label="Email" error={errs.email}><input className={inputCls} type="email" value={f.email} onChange={set("email")} autoComplete="email" /></Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Password" error={errs.password}><input className={inputCls} type="password" value={f.password} onChange={set("password")} autoComplete="new-password" /></Field>
-          <Field label="Confirm password" error={errs.confirm}><input className={inputCls} type="password" value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
+          <Field label="Password" error={errs.password}><PasswordInput value={f.password} onChange={set("password")} autoComplete="new-password" /></Field>
+          <Field label="Confirm password" error={errs.confirm}><PasswordInput value={f.confirm} onChange={set("confirm")} autoComplete="new-password" /></Field>
         </div>
         <Button size="lg" className="w-full" disabled={busy}>{busy ? "Creating account..." : "Create account"}</Button>
       </form>

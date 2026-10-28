@@ -6,7 +6,7 @@ import { useApp } from "@/lib/store";
 import { cn, dayLabel, fmtTime, mapsDirections, toISO } from "@/lib/utils";
 import { Badge, ButtonLink, Card, Rating } from "./ui";
 
-export function ClinicCard({ clinic, highlight, onHover, badge }: { clinic: Clinic; highlight?: boolean; onHover?: () => void; badge?: string }) {
+export function ClinicCard({ clinic, highlight, onHover, badge, distanceKm }: { clinic: Clinic; highlight?: boolean; onHover?: () => void; badge?: string; distanceKm?: number }) {
   const { ctx, waits, savedClinics, toggleClinic } = useApp();
   const open = isClinicOpen(clinic, ctx.now);
   const docs = doctorsOf(clinic.id);
@@ -31,7 +31,7 @@ export function ClinicCard({ clinic, highlight, onHover, badge }: { clinic: Clin
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
         <Rating value={clinic.rating} count={clinic.reviews} />
-        <span>{clinic.distanceKm} km away</span>
+        <span>{distanceKm === undefined ? "Distance unavailable" : `${distanceKm.toFixed(1)} km away`}</span>
         <span className="flex items-center gap-1"><Clock className="h-4 w-4 text-brand-500" aria-hidden /> {hoursLabel(clinic)}</span>
         <Badge tone={open ? "green" : "gray"}>{open ? "Open now" : "Closed now"}</Badge>
       </div>

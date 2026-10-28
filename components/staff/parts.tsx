@@ -7,6 +7,7 @@ import { statusMeta } from "@/components/TokenTicket";
 import { useStaff } from "@/lib/staff-store";
 import type { Appointment, StaffState } from "@/lib/types";
 import { cn, nowMin, toISO, toMin, validPhone } from "@/lib/utils";
+import { PhoneInput } from "@/components/PhoneInput";
 
 export const ACTIVE = ["confirmed", "postponed", "now-serving"];
 export const queueOf = (s: StaffState, doctorId: string, today: string) =>
@@ -81,7 +82,7 @@ export function WalkInModal({ open, onClose, defaultDoctor }: { open: boolean; o
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     if (f.patient.trim().length < 2) return setErr("Enter the patient's name.");
-    if (!validPhone(f.phone)) return setErr("Enter a 10-digit mobile number.");
+    if (!validPhone(f.phone)) return setErr("Enter a valid phone number.");
     setBusy(true); setErr("");
     try {
       const r = await act<{ appointment: Appointment }>("walkin", f);
@@ -94,7 +95,7 @@ export function WalkInModal({ open, onClose, defaultDoctor }: { open: boolean; o
     <Modal open={open} onClose={onClose} title="Register a walk-in patient">
       <div className="space-y-4">
         <Field label="Patient name"><input className={inputCls} value={f.patient} onChange={(e) => setF({ ...f, patient: e.target.value })} autoFocus /></Field>
-        <Field label="Mobile number" hint="The token and queue updates are sent here."><input className={inputCls} inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="98200 12345" /></Field>
+        <Field label="Mobile number" hint="The token and queue updates are sent here."><PhoneInput value={f.phone} onChange={(phone) => setF({ ...f, phone })} /></Field>
         <Field label="Doctor">
           <select className={inputCls} value={f.doctorId} onChange={(e) => setF({ ...f, doctorId: e.target.value })}>
             {docs.map((d) => { const st = doctorStatus(state, d, now); return <option key={d.id} value={d.id} disabled={st.key !== "on"}>{d.name} ({d.specialty}){st.key !== "on" ? ` - ${st.label.toLowerCase()}` : ""}</option>; })}

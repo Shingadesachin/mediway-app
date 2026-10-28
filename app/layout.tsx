@@ -5,6 +5,7 @@ import { Providers } from "@/components/Providers";
 export const metadata: Metadata = {
   title: "MediWay | Smart Care. Less Waiting.",
   description: "Find nearby urgent care, see live doctor availability, get a queue token and WhatsApp updates. First aid help when no clinic is nearby.",
+  manifest: "/manifest.webmanifest",
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0F52A8" };
 

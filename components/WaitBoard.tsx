@@ -5,10 +5,13 @@ import { CLINICS, doctorsOf } from "@/lib/data";
 import { doctorLive, isClinicOpen, urgentScore } from "@/lib/engine";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { useUserLocation } from "@/lib/location";
+import { distanceKm } from "@/lib/geo";
 
 /** Live wait-time board, styled like a departures screen. Waits drift every few seconds in the prototype. */
 export function WaitBoard({ limit = 5, className }: { limit?: number; className?: string }) {
   const { waits, ctx } = useApp();
+  const { location } = useUserLocation();
   const rows = CLINICS.filter((c) => c.urgent && isClinicOpen(c, ctx.now))
     .map((c) => ({ c, w: waits[c.id] ?? c.baseWait, free: doctorsOf(c.id).filter((d) => doctorLive(d, ctx).key === "now").length }))
     .sort((a, b) => b.c.rating * 0 + (urgentScore(b.c, b.w) - urgentScore(a.c, a.w)))
@@ -33,7 +36,7 @@ export function WaitBoard({ limit = 5, className }: { limit?: number; className?
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{c.name}</p>
-                <p className="truncate text-sm text-brand-200">{c.area}, {c.distanceKm} km, {free} {free === 1 ? "doctor" : "doctors"} free now</p>
+                <p className="truncate text-sm text-brand-200">{c.area}{location ? `, ${distanceKm(location, c).toFixed(1)} km` : ""}, {free} {free === 1 ? "doctor" : "doctors"} free now</p>
               </div>
               <ChevronRight className="h-5 w-5 shrink-0 text-brand-300" aria-hidden />
             </Link>

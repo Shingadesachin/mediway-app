@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { LogoMark } from "@/components/Logo";
 import { Button, Field, inputCls } from "@/components/ui";
+import { PasswordInput } from "@/components/PasswordInput";
 
 const DEMOS = [
   { email: "desk@mediway.app", label: "Sunrise Family & Urgent Care" },
@@ -16,6 +17,7 @@ export default function StaffLogin() {
   const router = useRouter();
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -24,10 +26,10 @@ export default function StaffLogin() {
     if (!id.trim() || !pw) return setErr("Enter your work email and password.");
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: id, password: pw, portal: "staff" }) });
+      const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: id, password: pw, portal: "staff", keepSignedIn }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Could not log in.");
-      router.replace("/staff");
+      router.replace(j.mustChangePassword ? "/staff/profile?forcePassword=1" : "/staff");
     } catch (e2) { setErr((e2 as Error).message); setBusy(false); }
   };
 
@@ -53,9 +55,11 @@ export default function StaffLogin() {
           <p className="mt-1 text-slate-600">Sign in with your clinic work account.</p>
           <form onSubmit={submit} className="mt-7 space-y-4" noValidate>
             <Field label="Work email"><input className={inputCls} value={id} onChange={(e) => { setId(e.target.value); setErr(""); }} autoComplete="username" placeholder="you@yourclinic.com" /></Field>
-            <Field label="Password" error={err}><input className={inputCls} type="password" value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} autoComplete="current-password" /></Field>
+            <Field label="Password" error={err}><PasswordInput value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} autoComplete="current-password" /></Field>
+            <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={keepSignedIn} onChange={(e) => setKeepSignedIn(e.target.checked)} className="h-4 w-4" /> Keep me signed in</label>
             <Button size="lg" className="w-full" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</Button>
           </form>
+          <p className="mt-3 text-right"><Link href="/forgot-password" className="text-sm font-semibold text-brand-600 hover:underline">Forgot password?</Link></p>
           <div className="mt-6 rounded-2xl border border-brand-100 bg-white p-4 text-sm">
             <p className="font-semibold">Demo clinics (password <code className="rounded bg-brand-50 px-1">desk1234</code>)</p>
             <ul className="mt-2 space-y-1">
@@ -63,6 +67,7 @@ export default function StaffLogin() {
             </ul>
           </div>
           <p className="mt-6 text-center text-sm text-slate-600">Looking for care? <Link href="/login" className="font-semibold text-brand-600 hover:underline">Open the patient app</Link></p>
+          <p className="mt-2 text-center text-sm text-slate-600">New clinic? <Link href="/staff/signup" className="font-semibold text-brand-600 hover:underline">Apply to join</Link></p>
         </div>
       </div>
     </div>

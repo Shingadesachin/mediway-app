@@ -1,7 +1,7 @@
 "use client";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { slotKey, Ctx, slotTimes } from "./engine";
-import { DOCTORS } from "./data";
+import { DOCTORS, replaceCatalog } from "./data";
 import type { Appointment, Busy, Msg, Notif, NotifPrefs, PatientState, User } from "./types";
 import { clinicNow, toMin, uid } from "./utils";
 
@@ -15,7 +15,7 @@ interface AppValue {
   appointments: Appointment[]; allAppointments: Busy[]; notifications: Notif[]; messages: Msg[];
   emergencies: Record<string, number>; savedDoctors: string[]; savedClinics: string[]; waits: Record<string, number>; notices: Record<string, string>; unread: number;
   toasts: Toast[]; dismissToast: (id: string) => void; toast: (t: Omit<Toast, "id">) => void;
-  login: (identifier: string, password: string) => Promise<Result>;
+  login: (identifier: string, password: string, keepSignedIn?: boolean) => Promise<Result>;
   signup: (p: { name: string; phone: string; email: string; password: string }) => Promise<Result>;
   guest: () => Promise<Result>; logout: () => Promise<void>; refresh: () => Promise<void>;
   updateUser: (p: Partial<User>) => Promise<void>; setPrefs: (p: Partial<NotifPrefs>) => Promise<void>;
@@ -56,6 +56,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const r = await fetch("/api/state", { cache: "no-store" });
       if (!r.ok) throw new Error();
       const s: PatientState = await r.json();
+      replaceCatalog(s.clinics, s.doctors);
       setOffline(false);
       setState(s);
       setNow(clinicNow());
@@ -66,7 +67,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       seen.current = ids;
     } catch {
       setOffline(true);
-      setState((x) => x ?? ({ serverTime: Date.now(), user: null, prefs: { sms: true, whatsapp: true, reminders: true, email: false }, appointments: [], busy: [], blocks: [], notifications: [], messages: [], savedDoctors: [], savedClinics: [], emergencies: {}, waits: {}, notices: {} } as PatientState));
+      setState((x) => x ?? ({ serverTime: Date.now(), clinics: [], doctors: [], user: null, prefs: { sms: true, whatsapp: true, reminders: true, email: false }, appointments: [], busy: [], blocks: [], notifications: [], messages: [], savedDoctors: [], savedClinics: [], emergencies: {}, waits: {}, notices: {} } as PatientState));
     }
   }, [toast]);
 
@@ -105,13 +106,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       notifications: state.notifications, messages: state.messages, emergencies: state.emergencies, savedDoctors: state.savedDoctors, savedClinics: state.savedClinics,
       waits: state.waits, notices: state.notices, unread: state.notifications.filter((n) => !n.read).length, toasts, dismissToast, toast, refresh,
 
-      login: async (identifier, password) => {
-        try { await call("/api/auth/login", { identifier, password, portal: "patient" }); await refresh(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; }
+      login: async (identifier, password, keepSignedIn = false) => {
+        try { await call("/api/auth/login", { identifier, password, portal: "patient", keepSignedIn }); await refresh(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; }
       },
       signup: async (p) => { try { await call("/api/auth/signup", p); await refresh(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; } },
       guest: async () => { try { await call("/api/auth/guest"); await refresh(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; } },
       logout: async () => { try { await call("/api/auth/logout"); } catch {} seen.current = null; setState(null); await refresh(); },
-      updateUser: async (p) => { await guarded(() => act("profile", { ...state.user, ...p }))(); },
+      updateUser: async (p) => { await act("profile", { ...state.user, ...p }); },
       setPrefs: async (p) => { await guarded(() => act("prefs", p))(); },
       book: async (p) => {
         const j = await act("book", p);

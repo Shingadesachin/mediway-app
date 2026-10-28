@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { normPhone } from "../utils";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -43,6 +44,88 @@ CREATE INDEX IF NOT EXISTS ix_audit_clinic ON audit(clinic_id, time);
 `;
 
 type DB = Database.Database;
+
+function migrate(db: DB) {
+  let version = Number(db.pragma("user_version", { simple: true }));
+  if (version < 1) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS password_resets (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+        expires_at INTEGER NOT NULL, used_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS ix_password_resets_user ON password_resets(user_id, expires_at);`);
+      const users = db.prepare("SELECT id, phone, phone_norm FROM users WHERE phone IS NOT NULL AND phone <> ''").all() as
+        { id: string; phone: string; phone_norm: string | null }[];
+      const update = db.prepare("UPDATE users SET phone=?, phone_norm=? WHERE id=?");
+      for (const user of users) {
+        const phone = normPhone(user.phone);
+        if (phone) update.run(phone, phone, user.id);
+        else if (user.phone_norm && /^\d{10}$/.test(user.phone_norm)) update.run(user.phone, null, user.id);
+      }
+      const appointments = db.prepare("SELECT id, phone FROM appointments WHERE phone <> ''").all() as
+        { id: string; phone: string }[];
+      const updateAppointment = db.prepare("UPDATE appointments SET phone=? WHERE id=?");
+      for (const appointment of appointments) {
+        const phone = normPhone(appointment.phone);
+        if (phone) updateAppointment.run(phone, appointment.id);
+      }
+      db.pragma("user_version = 1");
+    })();
+    version = 1;
+  }
+  if (version < 2) {
+    db.transaction(() => {
+      const userColumns = new Set((db.pragma("table_info(users)") as { name: string }[]).map((column) => column.name));
+      if (!userColumns.has("doctor_id")) db.exec("ALTER TABLE users ADD COLUMN doctor_id TEXT");
+      if (!userColumns.has("must_change_password")) db.exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS clinics (
+          id TEXT PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL, area TEXT NOT NULL, address TEXT NOT NULL,
+          lat REAL NOT NULL, lng REAL NOT NULL, rating REAL NOT NULL DEFAULT 0, reviews INTEGER NOT NULL DEFAULT 0,
+          open_json TEXT NOT NULL, urgent INTEGER NOT NULL DEFAULT 0, base_wait INTEGER NOT NULL DEFAULT 0,
+          phone TEXT NOT NULL DEFAULT '', services_json TEXT NOT NULL DEFAULT '[]', blurb TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE TABLE IF NOT EXISTS doctors (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, specialty TEXT NOT NULL, clinic_id TEXT NOT NULL,
+          rating REAL NOT NULL DEFAULT 0, reviews INTEGER NOT NULL DEFAULT 0, exp INTEGER NOT NULL DEFAULT 0,
+          fee INTEGER NOT NULL DEFAULT 0, shift_start INTEGER NOT NULL, shift_end INTEGER NOT NULL,
+          avg_consult INTEGER NOT NULL DEFAULT 12, languages_json TEXT NOT NULL DEFAULT '[]',
+          about TEXT NOT NULL DEFAULT '', treats_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE INDEX IF NOT EXISTS ix_doctors_clinic_status ON doctors(clinic_id,status);
+        CREATE TABLE IF NOT EXISTS clinic_applications (
+          id TEXT PRIMARY KEY, clinic_name TEXT NOT NULL, address TEXT NOT NULL, area TEXT NOT NULL,
+          lat REAL NOT NULL, lng REAL NOT NULL, phone TEXT NOT NULL, opening_hours TEXT NOT NULL,
+          services_json TEXT NOT NULL, contact_name TEXT NOT NULL, contact_email TEXT NOT NULL,
+          password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL,
+          reviewed_at INTEGER, reviewed_by TEXT, rejection_reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_clinic_applications_status ON clinic_applications(status,created_at);
+      `);
+      db.pragma("user_version = 2");
+    })();
+    version = 2;
+  }
+  if (version < 3) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE,
+          keys_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user ON push_subscriptions(user_id);
+        CREATE TABLE IF NOT EXISTS staff_notifications (
+          id TEXT PRIMARY KEY, clinic_id TEXT NOT NULL, doctor_id TEXT, type TEXT NOT NULL,
+          title TEXT NOT NULL, body TEXT NOT NULL, time INTEGER NOT NULL, read INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS ix_staff_notifications_clinic ON staff_notifications(clinic_id,time);
+      `);
+      db.pragma("user_version = 3");
+    })();
+  }
+}
+
 export function getDb(): DB {
   const g = globalThis as unknown as { __mwdb?: DB };
   if (g.__mwdb) return g.__mwdb;
@@ -53,6 +136,7 @@ export function getDb(): DB {
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
+  migrate(db);
   g.__mwdb = db;
   const { seedIfEmpty } = require("./seed") as typeof import("./seed");
   seedIfEmpty(db);

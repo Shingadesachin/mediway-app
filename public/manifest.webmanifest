@@ -1,0 +1,12 @@
+{
+  "name": "MediWay",
+  "short_name": "MediWay",
+  "description": "Find care and manage your clinic appointments.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/icons/mediway.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
