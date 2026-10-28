@@ -74,7 +74,8 @@ An SQLite migration normalizes existing user and appointment phone numbers.
 Location is requested only after the user chooses the location control; users can instead enter a Mumbai area or
 any valid 6-digit Indian PIN code. PIN codes are resolved to a nearby point using OpenStreetMap's Nominatim service,
 then clinics are sorted by real distance and filtered by the chosen radius. Browser coordinates are kept client-side.
-Clinic and hospital sample coordinates are illustrative.
+Clinic and hospital sample coordinates are illustrative. Newly added Goregaon, Malad, Borivali, Kandivali, Dahisar,
+and Vile Parle listings and their doctors are fictional demo data, not verified providers; confirm details before visiting.
 Maps use Leaflet and OpenStreetMap tiles without an API key; directions open Google Maps.
 
 To enable push notifications, generate VAPID keys with:

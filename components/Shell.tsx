@@ -36,16 +36,26 @@ export function EmergencyButton({ compact, className }: { compact?: boolean; cla
 }
 
 export function Shell({ children, requireAuth }: { children: React.ReactNode; requireAuth?: boolean }) {
-  const { user, unread, logout } = useApp();
+  const { user, unread, logout, ready, offline, refresh } = useApp();
   const path = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
 
   useEffect(() => {
-    if (requireAuth && !user) router.replace(`/login?next=${encodeURIComponent(path)}`);
-  }, [requireAuth, user, path, router]);
+    if (requireAuth && ready && !offline && !user) router.replace(`/login?next=${encodeURIComponent(path)}`);
+  }, [requireAuth, ready, offline, user, path, router]);
   useEffect(() => setMenu(false), [path]);
 
+  if (requireAuth && (!ready || (!user && offline))) {
+    return (
+      <div className="grid min-h-screen place-items-center px-5 text-center">
+        <div className="max-w-sm">
+          <p className="text-sm text-slate-600">{offline ? "We couldn't check your session because the server is unreachable." : "Checking your session..."}</p>
+          {offline && <button type="button" onClick={() => void refresh()} className="mt-4 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">Try again</button>}
+        </div>
+      </div>
+    );
+  }
   if (requireAuth && !user) return <div className="grid min-h-screen place-items-center text-sm text-slate-500">Taking you to log in...</div>;
   const active = (h: string) => path === h || (h !== "/dashboard" && path.startsWith(h));
 
